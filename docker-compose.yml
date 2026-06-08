@@ -1,0 +1,21 @@
+services:
+  energyme-monitor:
+    build: .
+    image: energyme-monitor:latest
+    container_name: energyme-monitor
+    restart: unless-stopped
+    ports:
+      - "6543:6543"
+    volumes:
+      - ./development.ini:/app/development.ini:ro
+    environment:
+      - PYTHONPATH=/app
+    devices:
+      # Décommenter si le bus I²C est disponible sur l'hôte
+      # - /dev/i2c-1:/dev/i2c-1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6543/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

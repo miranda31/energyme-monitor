@@ -1,0 +1,4 @@
+pyramid>=2.0
+pyramid-jinja2>=2.10
+waitress>=3.0
+requests>=2.31

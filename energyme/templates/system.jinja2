@@ -1,0 +1,189 @@
+{% extends "base.jinja2" %}
+{% block title %}Système – EnergyMe Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h2 class="mb-0 fw-bold">Système</h2>
+    <p class="text-muted mb-0">État, versions et informations matérielles</p>
+  </div>
+  <button class="btn btn-sm btn-outline-info" onclick="location.reload()">
+    <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+  </button>
+</div>
+
+<div class="row g-4">
+  <!-- État général -->
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header py-3">
+        <i class="bi bi-heart-pulse me-2 text-success"></i>État général
+      </div>
+      <div class="card-body">
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Statut</span>
+          <span class="info-val status-ok">
+            <i class="bi bi-check-circle-fill me-1"></i>Opérationnel
+          </span>
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Mode</span>
+          {% if info.simulation_mode %}
+          <span class="info-val status-warn">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>Simulation (pas de matériel)
+          </span>
+          {% else %}
+          <span class="info-val status-ok">
+            <i class="bi bi-cpu-fill me-1"></i>Matériel réel
+          </span>
+          {% endif %}
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Uptime serveur</span>
+          <span class="info-val">{{ uptime }}</span>
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Version firmware</span>
+          <span class="info-val version-badge">
+            <span class="badge bg-primary">v{{ current_version }}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Matériel -->
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header py-3">
+        <i class="bi bi-cpu me-2 text-info"></i>Matériel
+      </div>
+      <div class="card-body">
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Circuit de mesure</span>
+          <span class="info-val">{{ info.ic }}</span>
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Fabricant</span>
+          <span class="info-val">{{ info.manufacturer }}</span>
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Bus I²C</span>
+          <span class="info-val"><code>/dev/i2c-{{ info.i2c_bus }}</code></span>
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Adresse I²C</span>
+          <span class="info-val"><code>{{ info.i2c_addr }}</code></span>
+        </div>
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">Driver smbus2</span>
+          {% if info.hardware %}
+          <span class="info-val status-ok"><i class="bi bi-check-circle me-1"></i>Disponible</span>
+          {% else %}
+          <span class="info-val status-warn"><i class="bi bi-x-circle me-1"></i>Non installé</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firmware GitHub -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header py-3 d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-github me-2"></i>Dernière version disponible sur GitHub</span>
+        <a href="https://github.com/{{ github_repo }}/releases" target="_blank"
+           class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Voir toutes les releases
+        </a>
+      </div>
+      <div class="card-body">
+        {% if latest_release is none %}
+        <div class="alert alert-warning mb-0">
+          <i class="bi bi-wifi-off me-2"></i>
+          Impossible de contacter GitHub pour vérifier les mises à jour.
+        </div>
+        {% elif latest_release.tag == 'Aucune release' %}
+        <div class="alert alert-secondary mb-0">
+          <i class="bi bi-info-circle me-2"></i>
+          Aucune release publiée sur <code>{{ github_repo }}</code>.
+        </div>
+        {% else %}
+        <div class="row align-items-center g-3">
+          <div class="col-auto">
+            {% if up_to_date == true %}
+            <span class="badge bg-success fs-6 px-3 py-2">
+              <i class="bi bi-check-circle me-1"></i>À jour
+            </span>
+            {% elif up_to_date == false %}
+            <span class="badge bg-warning text-dark fs-6 px-3 py-2">
+              <i class="bi bi-arrow-up-circle me-1"></i>Mise à jour disponible
+            </span>
+            {% endif %}
+          </div>
+          <div class="col">
+            <div class="info-row d-flex justify-content-between border-0 pb-0">
+              <span class="info-key">Tag</span>
+              <span class="info-val">
+                <a href="{{ latest_release.url }}" target="_blank" class="text-info">
+                  {{ latest_release.tag }}
+                </a>
+              </span>
+            </div>
+            <div class="info-row d-flex justify-content-between">
+              <span class="info-key">Nom</span>
+              <span class="info-val">{{ latest_release.name }}</span>
+            </div>
+            <div class="info-row d-flex justify-content-between">
+              <span class="info-key">Publié le</span>
+              <span class="info-val">{{ latest_release.published }}</span>
+            </div>
+          </div>
+        </div>
+        {% if latest_release.body %}
+        <div class="mt-3 p-3 rounded" style="background:#111827; font-size:0.85rem; color:#94a3b8; white-space:pre-wrap; max-height:200px; overflow-y:auto;">{{ latest_release.body }}</div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Informations logicielles -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header py-3">
+        <i class="bi bi-layers me-2 text-purple"></i>Stack logiciel
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-sm-6 col-md-3">
+            <div class="p-3 rounded text-center" style="background:#111827">
+              <div class="metric-label">Framework Web</div>
+              <div class="fw-bold mt-1">Pyramid</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="p-3 rounded text-center" style="background:#111827">
+              <div class="metric-label">Serveur WSGI</div>
+              <div class="fw-bold mt-1">Waitress</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="p-3 rounded text-center" style="background:#111827">
+              <div class="metric-label">Templates</div>
+              <div class="fw-bold mt-1">Jinja2</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="p-3 rounded text-center" style="background:#111827">
+              <div class="metric-label">Interface IC</div>
+              <div class="fw-bold mt-1">smbus2 / I²C</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

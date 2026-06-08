@@ -1,0 +1,122 @@
+{% extends "base.jinja2" %}
+{% block title %}Configuration ADE7953 – EnergyMe Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h2 class="mb-0 fw-bold">Configuration ADE7953</h2>
+    <p class="text-muted mb-0">Registres de configuration et de calibration</p>
+  </div>
+  <span class="badge bg-secondary fs-6 px-3 py-2">
+    <i class="bi bi-chip me-1"></i>Analog Devices ADE7953
+  </span>
+</div>
+
+<div class="card">
+  <div class="card-header py-3">
+    <i class="bi bi-table me-2 text-info"></i>Registres de configuration
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width:14%">Registre</th>
+            <th style="width:14%">Valeur</th>
+            <th style="width:14%">Unité</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in config_rows %}
+          <tr>
+            <td>
+              <code class="text-info">{{ row.name }}</code>
+            </td>
+            <td>
+              {% if row.type == 'select' %}
+              <span class="badge bg-primary">{{ row.display }}</span>
+              <small class="text-muted d-block">raw: {{ row.value }}</small>
+              {% elif row.type == 'int' and row.value is not none %}
+              <span class="fw-mono">
+                {{ row.value }}
+                {% if row.value != 0 %}
+                <small class="text-muted">({{ '0x%X' % row.value }})</small>
+                {% endif %}
+              </span>
+              {% else %}
+              <span class="text-muted">{{ row.display }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.unit %}
+              <span class="text-muted small">{{ row.unit }}</span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="param-desc">{{ row.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-2">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header py-3">
+        <i class="bi bi-info-circle me-2 text-warning"></i>Gains PGA disponibles
+      </div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Code</th><th>Gain</th><th>Utilisation typique</th></tr></thead>
+          <tbody>
+            <tr><td>0</td><td>×1</td><td>Courant fort (≥ 5 A)</td></tr>
+            <tr><td>1</td><td>×2</td><td>Courant moyen (2–5 A)</td></tr>
+            <tr><td>2</td><td>×4</td><td>Courant moyen (1–2 A)</td></tr>
+            <tr><td>3</td><td>×8</td><td>Courant faible (0.5–1 A)</td></tr>
+            <tr><td>4</td><td>×16</td><td>Courant très faible (< 0.5 A)</td></tr>
+            <tr><td>5</td><td>×22</td><td>Courant minimal</td></tr>
+            <tr><td>6</td><td>×32</td><td>Courant ultra-faible</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header py-3">
+        <i class="bi bi-book me-2 text-success"></i>Références
+      </div>
+      <div class="card-body">
+        <ul class="list-unstyled mb-0">
+          <li class="mb-2">
+            <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+            <a href="https://www.analog.com/media/en/technical-documentation/data-sheets/ADE7953.pdf"
+               target="_blank" class="text-info">Datasheet ADE7953 (Analog Devices)</a>
+          </li>
+          <li class="mb-2">
+            <i class="bi bi-github text-light me-2"></i>
+            <a href="https://github.com/miranda31/energyme-monitor" target="_blank" class="text-info">
+              Dépôt GitHub du projet
+            </a>
+          </li>
+          <li>
+            <i class="bi bi-cpu me-2 text-warning"></i>
+            Interface I²C — Adresse par défaut : <code>0x38</code>
+          </li>
+        </ul>
+        <hr style="border-color:#2d3148">
+        <p class="param-desc mb-0">
+          L'ADE7953 est un circuit de mesure d'énergie monophasé à deux canaux de courant
+          (A et B) et un canal de tension. Il mesure l'énergie active, réactive et apparente
+          avec une précision de classe 0.1%.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

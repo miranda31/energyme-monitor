@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 
 from pyramid.view import view_config
@@ -11,17 +12,22 @@ from .client import (
 
 log = logging.getLogger(__name__)
 _start_time = time.time()
+_thread_local = threading.local()
 
 
 def _get_client(request) -> EnergyMeClient:
-    s = request.registry.settings
-    return EnergyMeClient(
-        host=s.get("energyme.host",          "energyme.local"),
-        username=s.get("energyme.username",  "admin"),
-        password=s.get("energyme.password",  "energyme"),
-        timeout=int(s.get("energyme.timeout", 5)),
-        poll_delay_ms=int(s.get("energyme.poll_delay_ms", 200)),
-    )
+    """Retourne un client par thread (réutilise la session TCP, thread-safe)."""
+    if not hasattr(_thread_local, "client"):
+        s = request.registry.settings
+        _thread_local.client = EnergyMeClient(
+            host=s.get("energyme.host",          "energyme.local"),
+            username=s.get("energyme.username",  "admin"),
+            password=s.get("energyme.password",  "energyme"),
+            timeout=int(s.get("energyme.timeout", 5)),
+            poll_delay_ms=int(s.get("energyme.poll_delay_ms", 200)),
+        )
+        log.debug("Nouveau client EnergyMe créé pour le thread %s", threading.current_thread().name)
+    return _thread_local.client
 
 
 def _uptime_str() -> str:

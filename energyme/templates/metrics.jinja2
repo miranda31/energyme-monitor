@@ -6,12 +6,12 @@
   <div>
     <h2 class="mb-0 fw-bold">Métriques en temps réel</h2>
     {% if frequency %}
-    <p class="text-muted mb-0 small">
+    <p class="mb-0 small" style="color:#94a3b8">
       Fréquence réseau : <strong class="text-info">{{ "%.3f"|format(frequency) }} Hz</strong>
-      &nbsp;·&nbsp; Auto-refresh <span id="countdown">10</span>s
+      &nbsp;·&nbsp; Auto-refresh <span id="countdown" style="color:#e2e8f0;font-weight:600">10</span>s
     </p>
     {% else %}
-    <p class="text-muted mb-0 small">Auto-refresh <span id="countdown">10</span>s</p>
+    <p class="mb-0 small" style="color:#94a3b8">Auto-refresh <span id="countdown" style="color:#e2e8f0;font-weight:600">10</span>s</p>
     {% endif %}
   </div>
   <div class="d-flex align-items-center gap-2">
@@ -20,7 +20,7 @@
     </button>
     <!-- Sélecteur de refresh -->
     <div class="input-group input-group-sm" style="width:auto">
-      <span class="input-group-text bg-transparent border-secondary text-muted">
+      <span class="input-group-text bg-transparent border-secondary" style="color:#94a3b8">
         <i class="bi bi-arrow-clockwise"></i>
       </span>
       <select id="refresh-select" class="form-select form-select-sm border-secondary"
@@ -319,7 +319,11 @@ function startRefresh(seconds) {
   refreshTimer = setInterval(() => {
     n--;
     if (countEl) countEl.textContent = n;
-    if (n <= 0) location.reload();
+    if (n <= 0) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+      location.reload();
+    }
   }, 1000);
 }
 

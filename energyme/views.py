@@ -5,7 +5,7 @@ import requests
 from pyramid.view import view_config
 from pyramid.httpexceptions import HTTPFound, HTTPBadRequest
 
-from .ade7953 import get_device, CONFIG_PARAMS, CHANNEL_PARAMS, PGA_GAINS
+from .ade7953 import get_device, CONFIG_PARAMS, CHANNEL_PARAMS, PGA_GAINS, CHANNEL_MODES
 
 GITHUB_REPO = "miranda31/energyme-monitor"
 _start_time = time.time()
@@ -38,6 +38,7 @@ def metrics_view(request):
     return {
         "channels": channels,
         "channel_params": CHANNEL_PARAMS,
+        "channel_modes": CHANNEL_MODES,
         "pga_gains": PGA_GAINS,
         "page": "metrics",
     }
@@ -45,9 +46,13 @@ def metrics_view(request):
 
 @view_config(route_name="update_channel", renderer="json")
 def update_channel_view(request):
-    channel = request.matchdict["channel"].upper()
-    if channel not in ("A", "B"):
-        raise HTTPBadRequest("Canal invalide")
+    raw_ch = request.matchdict["channel"]
+    try:
+        channel = int(raw_ch)
+        if channel < 1 or channel > 16:
+            raise ValueError
+    except ValueError:
+        raise HTTPBadRequest("Canal invalide (1-16)")
     device = get_device()
     updated = {}
     for param_def in CHANNEL_PARAMS:
@@ -56,8 +61,6 @@ def update_channel_view(request):
             raw = request.POST[name]
             if param_def["type"] == "bool":
                 value = raw in ("1", "true", "on")
-            elif param_def["type"] == "select":
-                value = int(raw)
             else:
                 value = int(raw)
             device.update_channel_setting(channel, name, value)

@@ -1,119 +1,171 @@
-import json
+import logging
 import time
-import requests
 
 from pyramid.view import view_config
-from pyramid.httpexceptions import HTTPFound, HTTPBadRequest
+from pyramid.httpexceptions import HTTPBadRequest
 
-from .ade7953 import get_device, CONFIG_PARAMS, CHANNEL_PARAMS, PGA_GAINS, CHANNEL_MODES
+from .client import (
+    EnergyMeClient, EnergyMeError,
+    ADE7953_CONFIG_DESC, CHANNEL_EDIT_FIELDS, ROLE_LABELS,
+)
 
-GITHUB_REPO = "miranda31/energyme-monitor"
+log = logging.getLogger(__name__)
 _start_time = time.time()
 
 
-def _fetch_latest_release():
-    try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-        r = requests.get(url, timeout=3, headers={"Accept": "application/vnd.github+json"})
-        if r.status_code == 200:
-            data = r.json()
-            return {
-                "tag": data.get("tag_name", "—"),
-                "name": data.get("name", "—"),
-                "published": data.get("published_at", "—")[:10] if data.get("published_at") else "—",
-                "url": data.get("html_url", "#"),
-                "body": data.get("body", ""),
-            }
-        if r.status_code == 404:
-            return {"tag": "Aucune release", "name": "—", "published": "—", "url": "#", "body": ""}
-    except Exception:
-        pass
-    return None
+def _get_client(request) -> EnergyMeClient:
+    s = request.registry.settings
+    return EnergyMeClient(
+        host=s.get("energyme.host",     "energyme.local"),
+        username=s.get("energyme.username", "admin"),
+        password=s.get("energyme.password", "energyme"),
+        timeout=int(s.get("energyme.timeout", 10)),
+    )
 
+
+def _uptime_str() -> str:
+    s = int(time.time() - _start_time)
+    h, r = divmod(s, 3600)
+    m, s = divmod(r, 60)
+    return f"{h:02d}h {m:02d}m {s:02d}s"
+
+
+# ── Métriques ─────────────────────────────────────────────────────────────────
 
 @view_config(route_name="metrics", renderer="metrics.jinja2")
 def metrics_view(request):
-    device = get_device()
-    channels = device.get_metrics()
+    client = _get_client(request)
+    error = None
+    channels = []
+    frequency = None
+
+    try:
+        channels = client.get_channels_with_metrics()
+        frequency = client.get_grid_frequency()
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur métriques : %s", exc)
+
     return {
-        "channels": channels,
-        "channel_params": CHANNEL_PARAMS,
-        "channel_modes": CHANNEL_MODES,
-        "pga_gains": PGA_GAINS,
-        "page": "metrics",
+        "channels":     channels,
+        "frequency":    frequency,
+        "edit_fields":  CHANNEL_EDIT_FIELDS,
+        "role_labels":  ROLE_LABELS,
+        "error":        error,
+        "page":         "metrics",
     }
 
 
+# ── Mise à jour d'un canal ────────────────────────────────────────────────────
+
 @view_config(route_name="update_channel", renderer="json")
 def update_channel_view(request):
-    raw_ch = request.matchdict["channel"]
     try:
-        channel = int(raw_ch)
-        if channel < 1 or channel > 16:
+        index = int(request.matchdict["channel"])
+        if not (0 <= index <= 16):
             raise ValueError
     except ValueError:
-        raise HTTPBadRequest("Canal invalide (1-16)")
-    device = get_device()
-    updated = {}
-    for param_def in CHANNEL_PARAMS:
-        name = param_def["name"]
-        if name in request.POST:
-            raw = request.POST[name]
-            if param_def["type"] == "bool":
-                value = raw in ("1", "true", "on")
-            else:
-                value = int(raw)
-            device.update_channel_setting(channel, name, value)
-            updated[name] = value
-    return {"status": "ok", "channel": channel, "updated": updated}
+        raise HTTPBadRequest("Index de canal invalide (0–16)")
 
+    client = _get_client(request)
+    fields: dict = {}
+
+    for f in CHANNEL_EDIT_FIELDS:
+        name = f["name"]
+        if name not in request.POST:
+            continue
+        raw = request.POST[name]
+        if f["type"] == "bool":
+            fields[name] = raw in ("1", "true", "on")
+        elif f["type"] == "select" and name == "phase":
+            fields[name] = int(raw)
+        elif f["type"] in ("float",):
+            fields[name] = float(raw)
+        else:
+            fields[name] = raw
+
+    if not fields:
+        raise HTTPBadRequest("Aucun champ à mettre à jour")
+
+    try:
+        result = client.update_channel(index, fields)
+        return {"status": "ok", "channel": index, "device_response": result}
+    except EnergyMeError as exc:
+        log.error("Erreur update canal %d : %s", index, exc)
+        return {"status": "error", "message": str(exc)}
+
+
+# ── Configuration ADE7953 ─────────────────────────────────────────────────────
 
 @view_config(route_name="config", renderer="config.jinja2")
 def config_view(request):
-    device = get_device()
-    raw_config = device.get_ade7953_config()
+    client = _get_client(request)
+    error = None
     config_rows = []
-    for p in CONFIG_PARAMS:
-        name = p["name"]
-        val = raw_config.get(name, "—")
-        display = val
-        if p["type"] == "select" and isinstance(val, int):
-            display = p["options"].get(val, val)
-        config_rows.append({
-            "name": name,
-            "value": val,
-            "display": display,
-            "description": p["description"],
-            "unit": p.get("unit", ""),
-            "type": p["type"],
-        })
-    return {"config_rows": config_rows, "page": "config"}
 
+    try:
+        raw = client.get_ade7953_config()
+        for key, value in raw.items():
+            desc, unit = ADE7953_CONFIG_DESC.get(key, (key, ""))
+            config_rows.append({
+                "name":        key,
+                "value":       value,
+                "description": desc,
+                "unit":        unit,
+            })
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur config ADE7953 : %s", exc)
+
+    return {"config_rows": config_rows, "error": error, "page": "config"}
+
+
+# ── Système ───────────────────────────────────────────────────────────────────
 
 @view_config(route_name="system", renderer="system.jinja2")
 def system_view(request):
-    device = get_device()
-    info = device.get_system_info()
+    client = _get_client(request)
+    system_info = None
+    firmware_info = None
+    error = None
 
-    uptime_s = int(time.time() - _start_time)
-    h, rem = divmod(uptime_s, 3600)
-    m, s = divmod(rem, 60)
-    uptime_str = f"{h:02d}h {m:02d}m {s:02d}s"
+    try:
+        system_info = client.get_system_info()
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur system info : %s", exc)
 
-    latest = _fetch_latest_release()
+    try:
+        firmware_info = client.get_firmware_update_info()
+    except EnergyMeError as exc:
+        log.warning("Erreur firmware update info : %s", exc)
 
-    current_version = info["firmware_version"]
-    up_to_date = None
-    if latest and latest["tag"] not in ("Aucune release", "—"):
-        tag = latest["tag"].lstrip("v")
-        up_to_date = tag == current_version
+    # Extraction des champs utiles avec valeurs par défaut sûres
+    static  = (system_info or {}).get("static",  {})
+    dynamic = (system_info or {}).get("dynamic", {})
+
+    fw      = static.get("firmware", {})
+    device  = static.get("device",   {})
+    factory = static.get("factory",  {})
+    network = dynamic.get("network", {})
+    memory  = dynamic.get("memory",  {})
+    storage = dynamic.get("storage", {})
+    perf    = dynamic.get("performance", {})
+    cpu     = dynamic.get("cpu",     {})
+    uptime_device = dynamic.get("time", {}).get("uptimeSeconds")
 
     return {
-        "info": info,
-        "uptime": uptime_str,
-        "latest_release": latest,
-        "current_version": current_version,
-        "up_to_date": up_to_date,
-        "github_repo": GITHUB_REPO,
-        "page": "system",
+        "uptime_server":  _uptime_str(),
+        "uptime_device":  uptime_device,
+        "firmware":       fw,
+        "device":         device,
+        "factory":        factory,
+        "network":        network,
+        "memory":         memory,
+        "storage":        storage,
+        "performance":    perf,
+        "cpu":            cpu,
+        "firmware_info":  firmware_info,
+        "error":          error,
+        "page":           "system",
     }

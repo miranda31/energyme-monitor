@@ -5,7 +5,7 @@
 <div class="d-flex align-items-center justify-content-between mb-4">
   <div>
     <h2 class="mb-0 fw-bold">Configuration ADE7953</h2>
-    <p class="text-muted mb-0">Registres de calibration lus depuis le dispositif EnergyMe</p>
+    <p style="color:#94a3b8" class="mb-0">Registres de calibration lus depuis le dispositif EnergyMe</p>
   </div>
   <span class="badge bg-secondary fs-6 px-3 py-2">
     <i class="bi bi-chip me-1"></i>Analog Devices ADE7953
@@ -42,10 +42,10 @@
             <td class="font-monospace">
               {{ row.value }}
               {% if row.value is not none and row.value != 0 and row.value is number %}
-              <small class="text-muted">({{ '0x%X' % row.value }})</small>
+              <small style="color:#94a3b8">({{ '0x%X' % row.value }})</small>
               {% endif %}
             </td>
-            <td><span class="text-muted small">{{ row.unit or '—' }}</span></td>
+            <td><span style="color:#94a3b8;font-size:.8em">{{ row.unit or '—' }}</span></td>
             <td class="param-desc">{{ row.description }}</td>
           </tr>
           {% endfor %}

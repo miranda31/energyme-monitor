@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+from datetime import datetime
 
 from pyramid.view import view_config
 from pyramid.httpexceptions import HTTPBadRequest
@@ -30,6 +31,14 @@ def _get_client(request) -> EnergyMeClient:
     return _thread_local.client
 
 
+def _format_reset_ts(ts: float | None) -> str | None:
+    if ts is None:
+        return None
+    dt = datetime.fromtimestamp(ts)
+    today = datetime.now().date()
+    return dt.strftime("%H:%M") if dt.date() == today else dt.strftime("%d/%m %H:%M")
+
+
 def _uptime_str() -> str:
     s = int(time.time() - _start_time)
     h, r = divmod(s, 3600)
@@ -55,21 +64,29 @@ def metrics_view(request):
         error = str(exc)
         log.warning("Erreur métriques : %s", exc)
 
+    last_resets: dict = {}
     if ts_store and channels:
         try:
             active_idx = [ch["index"] for ch in channels if ch.get("metrics") is not None]
             trends = ts_store.get_all_trends(active_idx)
         except Exception:
             log.exception("Erreur lecture tendances")
+        try:
+            all_idx = [ch["index"] for ch in channels]
+            raw_resets = ts_store.get_last_resets(all_idx)
+            last_resets = {idx: _format_reset_ts(ts) for idx, ts in raw_resets.items()}
+        except Exception:
+            log.exception("Erreur lecture resets")
 
     return {
-        "channels":    channels,
-        "frequency":   frequency,
-        "edit_fields": CHANNEL_EDIT_FIELDS,
-        "role_labels": ROLE_LABELS,
-        "error":       error,
-        "page":        "metrics",
-        "trends":      trends,
+        "channels":     channels,
+        "frequency":    frequency,
+        "edit_fields":  CHANNEL_EDIT_FIELDS,
+        "role_labels":  ROLE_LABELS,
+        "error":        error,
+        "page":         "metrics",
+        "trends":       trends,
+        "last_resets":  last_resets,
     }
 
 

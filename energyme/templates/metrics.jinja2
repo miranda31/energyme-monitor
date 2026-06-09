@@ -171,12 +171,39 @@
             {% else %}
               {% set pw_color = 'info' %}
             {% endif %}
-            {{ cell(m.activePower,   pw_color) }}
+            {# Récupère la tendance du canal (peut être None si pas encore de données) #}
+            {% set tr = trends.get(ch.index) if trends else none %}
+            {# ── Puissance active + indicateur de tendance ── #}
+            <td class="text-end font-monospace text-{{ pw_color }}">
+              {% if m.activePower is not none %}{{ "%.2f"|format(m.activePower) }}{% else %}<span class="text-muted">—</span>{% endif %}
+              {% if tr and tr.direction != 'unknown' %}
+              <div class="trend-hint trend-{{ tr.direction }}">
+                {% if tr.direction == 'up' %}<i class="bi bi-arrow-up-short"></i>+{{ tr.slope_per_min }} W/min
+                {% elif tr.direction == 'down' %}<i class="bi bi-arrow-down-short"></i>{{ tr.slope_per_min }} W/min
+                {% else %}<i class="bi bi-dash"></i>stable
+                {% endif %}
+              </div>
+              {% endif %}
+            </td>
             {{ cell(m.reactivePower, 'secondary', '%.2f') }}
             {{ cell(m.apparentPower) }}
             {{ cell(m.powerFactor,   '', '%.4f') }}
-            {{ cell(m.activeEnergyImported,  'info',    '%.3f') }}
-            {{ cell(m.activeEnergyExported,  'success', '%.3f') }}
+            {# ── Énergie importée + delta sur fenêtre ── #}
+            <td class="text-end font-monospace text-info">
+              {% if m.activeEnergyImported is not none %}{{ "%.3f"|format(m.activeEnergyImported) }}
+              {% if tr and tr.e_in_delta is not none and tr.e_in_delta != 0 %}
+              <div class="trend-hint" style="color:#94a3b8">Δ {{ "%+.3f"|format(tr.e_in_delta) }} Wh</div>
+              {% endif %}
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            {# ── Énergie exportée + delta sur fenêtre ── #}
+            <td class="text-end font-monospace text-success">
+              {% if m.activeEnergyExported is not none %}{{ "%.3f"|format(m.activeEnergyExported) }}
+              {% if tr and tr.e_out_delta is not none and tr.e_out_delta != 0 %}
+              <div class="trend-hint" style="color:#94a3b8">Δ {{ "%+.3f"|format(tr.e_out_delta) }} Wh</div>
+              {% endif %}
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
           {% else %}
             {% for _ in range(8) %}<td class="text-muted text-end">—</td>{% endfor %}
           {% endif %}

@@ -42,9 +42,11 @@ def _uptime_str() -> str:
 @view_config(route_name="metrics", renderer="metrics.jinja2")
 def metrics_view(request):
     client = _get_client(request)
+    ts_store = getattr(request.registry, "ts_store", None)
     error = None
     channels = []
     frequency = None
+    trends: dict = {}
 
     try:
         channels = client.get_channels_with_metrics()
@@ -53,14 +55,57 @@ def metrics_view(request):
         error = str(exc)
         log.warning("Erreur métriques : %s", exc)
 
+    if ts_store and channels:
+        try:
+            active_idx = [ch["index"] for ch in channels if ch.get("metrics") is not None]
+            trends = ts_store.get_all_trends(active_idx)
+        except Exception:
+            log.exception("Erreur lecture tendances")
+
     return {
-        "channels":     channels,
-        "frequency":    frequency,
-        "edit_fields":  CHANNEL_EDIT_FIELDS,
-        "role_labels":  ROLE_LABELS,
-        "error":        error,
-        "page":         "metrics",
+        "channels":    channels,
+        "frequency":   frequency,
+        "edit_fields": CHANNEL_EDIT_FIELDS,
+        "role_labels": ROLE_LABELS,
+        "error":       error,
+        "page":        "metrics",
+        "trends":      trends,
     }
+
+
+# ── API Time Series ───────────────────────────────────────────────────────────
+
+@view_config(route_name="trends_api", renderer="json")
+def trends_api_view(request):
+    """GET /api/trends?minutes=15  – tendances de tous les canaux actifs."""
+    ts_store = getattr(request.registry, "ts_store", None)
+    if not ts_store:
+        return {"error": "Time series store indisponible"}
+
+    minutes = min(int(request.params.get("minutes", 15)), 1440)
+    try:
+        client = _get_client(request)
+        channels = client.get_channels_with_metrics()
+        active_idx = [ch["index"] for ch in channels if ch.get("metrics") is not None]
+        return ts_store.get_all_trends(active_idx, minutes=minutes)
+    except EnergyMeError as exc:
+        return {"error": str(exc)}
+
+
+@view_config(route_name="history_api", renderer="json")
+def history_api_view(request):
+    """GET /api/history/{channel}?minutes=60  – historique brut d'un canal."""
+    ts_store = getattr(request.registry, "ts_store", None)
+    if not ts_store:
+        return {"error": "Time series store indisponible"}
+
+    try:
+        channel = int(request.matchdict["channel"])
+    except (ValueError, KeyError):
+        return {"error": "Index de canal invalide"}
+
+    minutes = min(int(request.params.get("minutes", 60)), 1440)
+    return {"channel": channel, "data": ts_store.get_history(channel, minutes=minutes)}
 
 
 # ── Mise à jour d'un canal ────────────────────────────────────────────────────

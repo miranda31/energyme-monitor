@@ -50,6 +50,38 @@ def main(global_config, **settings):
     config.add_route("update_channel", "/channel/{channel}/update", request_method="POST")
     config.add_route("config",         "/config")
     config.add_route("system",         "/system")
+    config.add_route("trends_api",     "/api/trends")
+    config.add_route("history_api",    "/api/history/{channel}")
+
+    _init_timeseries(config, settings)
 
     config.scan(".views")
     return config.make_wsgi_app()
+
+
+def _init_timeseries(config, settings: dict) -> None:
+    """Initialise le store time series et démarre le collecteur en arrière-plan."""
+    try:
+        from .timeseries import TimeSeriesStore
+        from .collector import BackgroundCollector
+        from .client import EnergyMeClient
+
+        db_path = settings.get("energyme.ts_db_path", "energyme_ts.db")
+        ts_store = TimeSeriesStore(db_path=db_path)
+        config.registry.ts_store = ts_store
+
+        collector_client = EnergyMeClient(
+            host=settings.get("energyme.host",          "energyme.local"),
+            username=settings.get("energyme.username",  "admin"),
+            password=settings.get("energyme.password",  "energyme"),
+            timeout=int(settings.get("energyme.timeout", "5")),
+            poll_delay_ms=int(settings.get("energyme.poll_delay_ms", "200")),
+        )
+        interval = int(settings.get("energyme.collector_interval", "30"))
+        collector = BackgroundCollector(collector_client, ts_store, interval=interval)
+        collector.start()
+        config.registry.collector = collector
+
+    except Exception:
+        log.exception("Impossible d'initialiser le collecteur time series — tendances désactivées")
+        config.registry.ts_store = None

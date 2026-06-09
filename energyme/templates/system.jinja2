@@ -8,13 +8,13 @@
 </div>
 {% endmacro %}
 
-{% macro na() %}<span class="text-muted">—</span>{% endmacro %}
+{% macro na() %}<span style="color:#94a3b8">—</span>{% endmacro %}
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
   <div>
     <h2 class="mb-0 fw-bold">Système</h2>
-    <p class="text-muted mb-0">État du dispositif EnergyMe (ESP32)</p>
+    <p style="color:#94a3b8" class="mb-0">État du dispositif EnergyMe (ESP32)</p>
   </div>
   <button class="btn btn-sm btn-outline-info" onclick="location.reload()">
     <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
@@ -41,7 +41,7 @@
         {{ info_row("Version", firmware.buildVersion or na()) }}
         {{ info_row("Date de build", firmware.buildDate or na()) }}
         {% else %}
-        <p class="text-muted">—</p>
+        <p style="color:#94a3b8">—</p>
         {% endif %}
 
         {% if firmware_info %}
@@ -51,7 +51,7 @@
           <span class="badge bg-success px-3 py-2">
             <i class="bi bi-check-circle me-1"></i>À jour
           </span>
-          <span class="text-muted small">Version {{ firmware_info.currentVersion }}</span>
+          <span style="color:#94a3b8;font-size:.85em">Version {{ firmware_info.currentVersion }}</span>
         </div>
         {% else %}
         <div class="d-flex align-items-center gap-2">
@@ -79,7 +79,7 @@
         {{ info_row("Adresse IP",  network.wifiLocalIp or na()) }}
         {{ info_row("RSSI Wi-Fi",  (network.wifiRssi ~ " dBm") if network.wifiRssi is not none else na()) }}
         {% else %}
-        <p class="text-muted">—</p>
+        <p style="color:#94a3b8">—</p>
         {% endif %}
         <hr style="border-color:#2d3148">
         {{ info_row("ID dispositif", device.id if device else na()) }}

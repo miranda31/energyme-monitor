@@ -54,7 +54,9 @@
   {% set load_ch    = channels | selectattr('role', 'equalto', 'load')     | selectattr('metrics') | list %}
 
   {% macro sum_power(chs) %}
-    {{ (chs | sum(attribute='metrics.activePower') if chs else 0) | round(0) | int }}
+    {% set ns = namespace(total=0) %}
+    {% for c in chs %}{% if c.metrics.activePower is not none %}{% set ns.total = ns.total + c.metrics.activePower %}{% endif %}{% endfor %}
+    {{ ns.total | round(0) | int }}
   {% endmacro %}
 
   <div class="col-6 col-lg-3">
@@ -62,10 +64,10 @@
       <div class="metric-label"><i class="bi bi-lightning-charge me-1"></i>Réseau</div>
       {% if grid_ch %}
       {% set gp = grid_ch[0].metrics.activePower %}
-      <div class="metric-value {% if gp < 0 %}text-success{% else %}text-warning{% endif %}">
-        {{ gp | round(0) | int }} <small class="fs-6">W</small>
+      <div class="metric-value {% if gp is not none and gp < 0 %}text-success{% else %}text-warning{% endif %}">
+        {% if gp is not none %}{{ gp | round(0) | int }}{% else %}—{% endif %} <small class="fs-6">W</small>
       </div>
-      <div class="small text-muted">{% if gp < 0 %}Injection{% else %}Soutirage{% endif %}</div>
+      <div class="small text-muted">{% if gp is not none and gp < 0 %}Injection{% else %}Soutirage{% endif %}</div>
       {% else %}
       <div class="metric-value text-muted">—</div>
       {% endif %}
@@ -111,6 +113,7 @@
           <th class="text-end" style="min-width:55px">PF</th>
           <th class="text-end col-energy" style="min-width:110px">↓ Import (Wh)</th>
           <th class="text-end col-energy" style="min-width:110px">↑ Export (Wh)</th>
+          <th class="text-center" style="min-width:75px;font-size:.75rem" title="Dernier off/on automatique">Off/On</th>
 
           <!-- Colonnes paramètres (masquées par défaut) -->
           <th class="col-param" style="min-width:55px">Actif</th>
@@ -137,9 +140,16 @@
             <div class="d-flex align-items-center gap-2">
               <i class="bi {{ ch.role_icon }} text-{{ ch.role_color }}"></i>
               <div>
-                <div class="fw-semibold" style="font-size:.9rem">{{ ch.label or ("Canal " ~ ch.index) }}</div>
+                <div class="fw-semibold" style="font-size:.9rem">
+                  {{ ch.label or ("Canal " ~ ch.index) }}
+                  {% if ch.partial_metrics %}
+                  <i class="bi bi-exclamation-triangle-fill text-warning ms-1"
+                     style="font-size:.75rem"
+                     title="Réponse API incomplète : certaines mesures manquantes"></i>
+                  {% endif %}
+                </div>
                 {% if ch.groupLabel %}
-                <div class="text-muted" style="font-size:.72rem">{{ ch.groupLabel }}</div>
+                <div style="color:#94a3b8;font-size:.72rem">{{ ch.groupLabel }}</div>
                 {% endif %}
               </div>
             </div>
@@ -165,7 +175,7 @@
             {{ cell(m.current, '', '%.4f') }}
             {# Couleur selon le sens pour grid #}
             {% if ch.role == 'grid' %}
-              {% set pw_color = 'success' if m.activePower < 0 else 'warning' %}
+              {% set pw_color = 'success' if (m.activePower is not none and m.activePower < 0) else 'warning' %}
             {% elif ch.role in ('pv', 'inverter') %}
               {% set pw_color = 'warning' %}
             {% else %}
@@ -181,6 +191,10 @@
                 {% if tr.direction == 'up' %}<i class="bi bi-arrow-up-short"></i>+{{ tr.slope_per_min }} W/min
                 {% elif tr.direction == 'down' %}<i class="bi bi-arrow-down-short"></i>{{ tr.slope_per_min }} W/min
                 {% else %}<i class="bi bi-dash"></i>stable
+                {% endif %}
+                {% if tr.direction_since_min is not none %}
+                  {% set dsm = tr.direction_since_min %}
+                  • <span style="color:#64748b">{% if dsm < 60 %}{{ dsm }} min{% else %}{{ dsm // 60 }}h{{ "%02d"|format(dsm % 60) }}{% endif %}</span>
                 {% endif %}
               </div>
               {% endif %}
@@ -207,6 +221,12 @@
           {% else %}
             {% for _ in range(8) %}<td class="text-muted text-end">—</td>{% endfor %}
           {% endif %}
+
+          {# Colonne Off/On : affichée pour tous les canaux #}
+          {% set reset_str = last_resets.get(ch.index) %}
+          <td class="text-center font-monospace" style="font-size:.72rem;color:{% if reset_str %}#fbbf24{% else %}#475569{% endif %}">
+            {{ reset_str or '—' }}
+          </td>
 
           <!-- Paramètres éditables -->
           <td class="col-param text-center">

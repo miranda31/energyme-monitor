@@ -14,11 +14,26 @@
     <p class="text-muted mb-0 small">Auto-refresh <span id="countdown">10</span>s</p>
     {% endif %}
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex align-items-center gap-2">
     <button class="btn btn-sm btn-outline-secondary" id="btn-toggle-params">
       <i class="bi bi-sliders me-1"></i>Paramètres
     </button>
-    <button class="btn btn-sm btn-outline-info" onclick="location.reload()">
+    <!-- Sélecteur de refresh -->
+    <div class="input-group input-group-sm" style="width:auto">
+      <span class="input-group-text bg-transparent border-secondary text-muted">
+        <i class="bi bi-arrow-clockwise"></i>
+      </span>
+      <select id="refresh-select" class="form-select form-select-sm border-secondary"
+              style="background:#1a1d2e;color:#94a3b8;width:90px">
+        <option value="0">Manuel</option>
+        <option value="5">5 s</option>
+        <option value="10" selected>10 s</option>
+        <option value="30">30 s</option>
+        <option value="60">1 min</option>
+        <option value="300">5 min</option>
+      </select>
+    </div>
+    <button class="btn btn-sm btn-outline-info" onclick="location.reload()" title="Rafraîchir maintenant">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>
@@ -286,9 +301,37 @@ document.querySelectorAll('.channel-row').forEach(row => {
   });
 });
 
-// ── Compte à rebours auto-refresh ───────────────────────────────────────────
-let n = 10;
-const el = document.getElementById('countdown');
-if (el) setInterval(() => { el.textContent = --n; if (n <= 0) location.reload(); }, 1000);
+// ── Refresh configurable ─────────────────────────────────────────────────────
+const REFRESH_KEY = 'energyme_refresh_interval';
+const refreshSelect = document.getElementById('refresh-select');
+const countEl = document.getElementById('countdown');
+let refreshTimer = null;
+
+function startRefresh(seconds) {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  if (seconds <= 0) {
+    if (countEl) countEl.textContent = '—';
+    return;
+  }
+  let n = seconds;
+  if (countEl) countEl.textContent = n;
+  refreshTimer = setInterval(() => {
+    n--;
+    if (countEl) countEl.textContent = n;
+    if (n <= 0) location.reload();
+  }, 1000);
+}
+
+// Restaurer depuis localStorage
+const saved = parseInt(localStorage.getItem(REFRESH_KEY) ?? '10', 10);
+refreshSelect.value = String(saved);
+startRefresh(saved);
+
+refreshSelect.addEventListener('change', () => {
+  const val = parseInt(refreshSelect.value, 10);
+  localStorage.setItem(REFRESH_KEY, val);
+  startRefresh(val);
+});
 </script>
 {% endblock %}

@@ -16,10 +16,11 @@ _start_time = time.time()
 def _get_client(request) -> EnergyMeClient:
     s = request.registry.settings
     return EnergyMeClient(
-        host=s.get("energyme.host",     "energyme.local"),
-        username=s.get("energyme.username", "admin"),
-        password=s.get("energyme.password", "energyme"),
-        timeout=int(s.get("energyme.timeout", 10)),
+        host=s.get("energyme.host",          "energyme.local"),
+        username=s.get("energyme.username",  "admin"),
+        password=s.get("energyme.password",  "energyme"),
+        timeout=int(s.get("energyme.timeout", 5)),
+        poll_delay_ms=int(s.get("energyme.poll_delay_ms", 200)),
     )
 
 

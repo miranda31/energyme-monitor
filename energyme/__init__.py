@@ -29,10 +29,11 @@ def _load_app_config() -> dict:
         return {}
 
     return {
-        "energyme.host":     cfg.get(section, "host",     fallback="energyme.local"),
-        "energyme.username": cfg.get(section, "username", fallback="admin"),
-        "energyme.password": cfg.get(section, "password", fallback="energyme"),
-        "energyme.timeout":  cfg.get(section, "timeout",  fallback="10"),
+        "energyme.host":          cfg.get(section, "host",          fallback="energyme.local"),
+        "energyme.username":      cfg.get(section, "username",      fallback="admin"),
+        "energyme.password":      cfg.get(section, "password",      fallback="energyme"),
+        "energyme.timeout":       cfg.get(section, "timeout",       fallback="5"),
+        "energyme.poll_delay_ms": cfg.get(section, "poll_delay_ms", fallback="200"),
     }
 
 

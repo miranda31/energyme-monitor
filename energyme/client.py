@@ -5,7 +5,7 @@ si le dispositif est injoignable ou retourne une erreur.
 """
 
 import logging
-from dataclasses import dataclass, field
+import time
 from typing import Any
 
 import requests
@@ -88,10 +88,12 @@ class EnergyMeError(Exception):
 class EnergyMeClient:
     """Client HTTP vers l'API REST EnergyMe (ESP32)."""
 
-    def __init__(self, host: str, username: str, password: str, timeout: int = 10):
+    def __init__(self, host: str, username: str, password: str,
+                 timeout: int = 5, poll_delay_ms: int = 200):
         self.base_url = f"http://{host}"
         self._auth = HTTPDigestAuth(username, password)
         self._timeout = timeout
+        self._poll_delay = poll_delay_ms / 1000.0  # converti en secondes
         self._session = requests.Session()
         self._session.headers.update({"Accept": "application/json"})
 
@@ -141,8 +143,12 @@ class EnergyMeClient:
         Fusionne config + mesures. Retourne une liste de dicts avec :
         - tous les champs de configuration du canal
         - clé 'metrics' avec les valeurs de mesure (ou None si inactif)
+        Un délai poll_delay est inséré entre les deux appels pour ne pas
+        saturer le dispositif EnergyMe sur Wi-Fi.
         """
         channels = {ch["index"]: ch for ch in self.get_channels()}
+        if self._poll_delay > 0:
+            time.sleep(self._poll_delay)
         try:
             meter_values = {mv["index"]: mv.get("data", mv) for mv in self.get_meter_values()}
         except EnergyMeError:

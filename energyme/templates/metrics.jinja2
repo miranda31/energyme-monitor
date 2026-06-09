@@ -4,152 +4,223 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div>
-    <h2 class="mb-0 fw-bold">Métriques – 16 canaux</h2>
-    <p class="text-muted mb-0 small">ADE7953 · Auto-refresh <span id="countdown">10</span>s</p>
+    <h2 class="mb-0 fw-bold">Métriques en temps réel</h2>
+    {% if frequency %}
+    <p class="text-muted mb-0 small">
+      Fréquence réseau : <strong class="text-info">{{ "%.3f"|format(frequency) }} Hz</strong>
+      &nbsp;·&nbsp; Auto-refresh <span id="countdown">10</span>s
+    </p>
+    {% else %}
+    <p class="text-muted mb-0 small">Auto-refresh <span id="countdown">10</span>s</p>
+    {% endif %}
   </div>
   <div class="d-flex gap-2">
     <button class="btn btn-sm btn-outline-secondary" id="btn-toggle-params">
       <i class="bi bi-sliders me-1"></i>Paramètres
     </button>
     <button class="btn btn-sm btn-outline-info" onclick="location.reload()">
-      <i class="bi bi-arrow-clockwise me-1"></i>Rafraîchir
+      <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>
 </div>
 
+{% if error %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-wifi-off fs-5"></i>
+  <div><strong>Dispositif injoignable</strong> — {{ error }}</div>
+</div>
+{% endif %}
+
+{% if channels %}
+<!-- Résumé global par rôle -->
+<div class="row g-3 mb-4" id="summary-cards">
+  {% set grid_ch    = channels | selectattr('role', 'equalto', 'grid')     | selectattr('metrics') | list %}
+  {% set pv_ch      = channels | selectattr('role', 'in', ['pv','inverter'])| selectattr('metrics') | list %}
+  {% set load_ch    = channels | selectattr('role', 'equalto', 'load')     | selectattr('metrics') | list %}
+
+  {% macro sum_power(chs) %}
+    {{ (chs | sum(attribute='metrics.activePower') if chs else 0) | round(0) | int }}
+  {% endmacro %}
+
+  <div class="col-6 col-lg-3">
+    <div class="card text-center py-3">
+      <div class="metric-label"><i class="bi bi-lightning-charge me-1"></i>Réseau</div>
+      {% if grid_ch %}
+      {% set gp = grid_ch[0].metrics.activePower %}
+      <div class="metric-value {% if gp < 0 %}text-success{% else %}text-warning{% endif %}">
+        {{ gp | round(0) | int }} <small class="fs-6">W</small>
+      </div>
+      <div class="small text-muted">{% if gp < 0 %}Injection{% else %}Soutirage{% endif %}</div>
+      {% else %}
+      <div class="metric-value text-muted">—</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card text-center py-3">
+      <div class="metric-label"><i class="bi bi-sun me-1"></i>Production</div>
+      <div class="metric-value text-warning">{{ sum_power(pv_ch) }} <small class="fs-6">W</small></div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card text-center py-3">
+      <div class="metric-label"><i class="bi bi-plug me-1"></i>Consommation</div>
+      <div class="metric-value text-info">{{ sum_power(load_ch) }} <small class="fs-6">W</small></div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card text-center py-3">
+      <div class="metric-label">Canaux actifs</div>
+      <div class="metric-value">
+        {{ channels | selectattr('active') | list | length }}
+        <small class="fs-6 text-muted">/ {{ channels | length }}</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tableau des canaux -->
 <div class="card p-0">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0" id="metrics-table">
       <thead>
         <tr>
-          <!-- Identité -->
-          <th class="text-center px-3" style="min-width:60px">#</th>
-          <th style="min-width:80px">État</th>
-
-          <!-- Mesures -->
+          <th class="px-3" style="width:45px">#</th>
+          <th style="min-width:160px">Canal</th>
+          <th style="min-width:80px">Rôle</th>
           <th class="text-end" style="min-width:90px">V<sub>rms</sub> (V)</th>
           <th class="text-end" style="min-width:90px">I<sub>rms</sub> (A)</th>
-          <th class="text-end" style="min-width:100px">P active (W)</th>
+          <th class="text-end" style="min-width:110px">P active (W)</th>
           <th class="text-end" style="min-width:110px">P réactive (VAR)</th>
-          <th class="text-end" style="min-width:110px">P apparente (VA)</th>
-          <th class="text-end" style="min-width:60px">PF</th>
-          <th class="text-end" style="min-width:75px">Fréq. (Hz)</th>
-          <th class="text-end" style="min-width:90px">Énergie (Wh)</th>
+          <th class="text-end" style="min-width:100px">P app. (VA)</th>
+          <th class="text-end" style="min-width:55px">PF</th>
+          <th class="text-end col-energy" style="min-width:110px">↓ Import (Wh)</th>
+          <th class="text-end col-energy" style="min-width:110px">↑ Export (Wh)</th>
 
-          <!-- Paramètres (masquables) -->
-          <th class="col-param text-center" style="min-width:90px">Actif</th>
-          <th class="col-param" style="min-width:120px">Mode</th>
-          <th class="col-param text-center" style="min-width:80px">Inversion</th>
-          <th class="col-param" style="min-width:100px">Gain PGA</th>
-          <th class="col-param text-end" style="min-width:90px">Cal.Phase</th>
-          <th class="col-param text-end" style="min-width:95px">Gain I</th>
-          <th class="col-param text-end" style="min-width:90px">Offset I</th>
-          <th class="col-param text-center" style="min-width:80px">No-Load</th>
-          <th class="col-param text-center" style="min-width:80px">Sauv.</th>
+          <!-- Colonnes paramètres (masquées par défaut) -->
+          <th class="col-param" style="min-width:55px">Actif</th>
+          <th class="col-param" style="min-width:80px">Inversion</th>
+          <th class="col-param" style="min-width:120px">Rôle</th>
+          <th class="col-param" style="min-width:80px">Phase</th>
+          <th class="col-param" style="min-width:150px">Nom</th>
+          <th class="col-param" style="min-width:120px">Groupe</th>
+          <th class="col-param text-end" style="min-width:95px">TC (A)</th>
+          <th class="col-param text-end" style="min-width:90px">TC (V)</th>
+          <th class="col-param text-end" style="min-width:90px">TC corr.</th>
+          <th class="col-param text-center" style="min-width:70px">Sauv.</th>
         </tr>
       </thead>
       <tbody>
-        {% for ch_id, ch in channels.items() %}
-        <tr class="channel-row {% if not ch.online %}opacity-50{% endif %}" data-channel="{{ ch_id }}">
+        {% for ch in channels %}
+        {% set m = ch.metrics %}
+        <tr class="channel-row {% if not ch.active %}opacity-50{% endif %}" data-channel="{{ ch.index }}">
 
-          <!-- # -->
-          <td class="text-center fw-bold px-3">{{ ch_id }}</td>
+          <td class="px-3 fw-bold text-muted">{{ ch.index }}</td>
 
-          <!-- État -->
+          <!-- Nom + état -->
           <td>
-            {% if ch.online %}
-            <span class="badge badge-online rounded-pill px-2 py-1" style="font-size:.7rem">
-              <i class="bi bi-circle-fill me-1" style="font-size:.45rem"></i>EN LIGNE
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi {{ ch.role_icon }} text-{{ ch.role_color }}"></i>
+              <div>
+                <div class="fw-semibold" style="font-size:.9rem">{{ ch.label or ("Canal " ~ ch.index) }}</div>
+                {% if ch.groupLabel %}
+                <div class="text-muted" style="font-size:.72rem">{{ ch.groupLabel }}</div>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+
+          <!-- Rôle badge -->
+          <td>
+            <span class="badge bg-{{ ch.role_color }} bg-opacity-25 text-{{ ch.role_color }}"
+                  style="border:1px solid;font-size:.7rem">
+              {{ ch.role_label }}
             </span>
-            {% elif not ch.active %}
-            <span class="badge rounded-pill px-2 py-1" style="font-size:.7rem;background:#1e293b;color:#64748b;border:1px solid #334155">
-              <i class="bi bi-dash-circle me-1" style="font-size:.45rem"></i>INACTIF
-            </span>
-            {% else %}
-            <span class="badge badge-offline rounded-pill px-2 py-1" style="font-size:.7rem">
-              <i class="bi bi-circle-fill me-1" style="font-size:.45rem"></i>HORS LIGNE
-            </span>
-            {% endif %}
           </td>
 
           <!-- Mesures -->
-          {% macro metric(val, color='') %}
-            <td class="text-end font-monospace {% if color %}text-{{ color }}{% endif %}">
-              {% if val is not none %}{{ val }}{% else %}<span class="text-muted">—</span>{% endif %}
-            </td>
+          {% macro cell(val, color='', fmt='%.2f') %}
+          <td class="text-end font-monospace {% if color %}text-{{ color }}{% endif %}">
+            {% if val is not none %}{{ fmt|format(val) }}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
           {% endmacro %}
 
-          {{ metric(ch.vrms) }}
-          {{ metric(ch.irms) }}
-          {{ metric(ch.active_power, 'success') }}
-          {{ metric(ch.reactive_power, 'warning') }}
-          {{ metric(ch.apparent_power) }}
-          {{ metric(ch.power_factor) }}
-          {{ metric(ch.frequency) }}
-          {{ metric(ch.active_energy, 'info') }}
+          {% if m %}
+            {{ cell(m.voltage) }}
+            {{ cell(m.current, '', '%.4f') }}
+            {# Couleur selon le sens pour grid #}
+            {% if ch.role == 'grid' %}
+              {% set pw_color = 'success' if m.activePower < 0 else 'warning' %}
+            {% elif ch.role in ('pv', 'inverter') %}
+              {% set pw_color = 'warning' %}
+            {% else %}
+              {% set pw_color = 'info' %}
+            {% endif %}
+            {{ cell(m.activePower,   pw_color) }}
+            {{ cell(m.reactivePower, 'secondary', '%.2f') }}
+            {{ cell(m.apparentPower) }}
+            {{ cell(m.powerFactor,   '', '%.4f') }}
+            {{ cell(m.activeEnergyImported,  'info',    '%.3f') }}
+            {{ cell(m.activeEnergyExported,  'success', '%.3f') }}
+          {% else %}
+            {% for _ in range(8) %}<td class="text-muted text-end">—</td>{% endfor %}
+          {% endif %}
 
           <!-- Paramètres éditables -->
           <td class="col-param text-center">
-            <div class="form-check d-flex justify-content-center mb-0">
-              <input class="form-check-input param-input" type="checkbox" name="active"
-                     {% if ch.settings.active %}checked{% endif %}>
-            </div>
+            <input class="form-check-input param-input" type="checkbox" name="active"
+                   {% if ch.active %}checked{% endif %}>
           </td>
-
+          <td class="col-param text-center">
+            <input class="form-check-input param-input" type="checkbox" name="reverse"
+                   {% if ch.reverse %}checked{% endif %}>
+          </td>
           <td class="col-param">
-            <select class="form-select form-select-sm param-input" name="mode" style="min-width:110px">
-              {% for k, v in channel_modes.items() %}
-              <option value="{{ k }}" {% if ch.settings.mode == k %}selected{% endif %}>{{ v }}</option>
+            <select class="form-select form-select-sm param-input" name="role">
+              {% for rk, rv in role_labels.items() %}
+              <option value="{{ rk }}" {% if ch.role == rk %}selected{% endif %}>{{ rv }}</option>
               {% endfor %}
             </select>
           </td>
-
-          <td class="col-param text-center">
-            <div class="form-check d-flex justify-content-center mb-0">
-              <input class="form-check-input param-input" type="checkbox" name="reverse"
-                     {% if ch.settings.reverse %}checked{% endif %}>
-            </div>
-          </td>
-
           <td class="col-param">
-            <select class="form-select form-select-sm param-input" name="gain" style="min-width:90px">
-              {% for k, v in pga_gains.items() %}
-              <option value="{{ k }}" {% if ch.settings.gain == k %}selected{% endif %}>{{ v }}</option>
+            <select class="form-select form-select-sm param-input" name="phase">
+              {% for pk, pv in {1:'Ph.1', 2:'Ph.2', 3:'Ph.3', 4:'240V'}.items() %}
+              <option value="{{ pk }}" {% if ch.phase == pk %}selected{% endif %}>{{ pv }}</option>
               {% endfor %}
             </select>
           </td>
-
+          <td class="col-param">
+            <input type="text" class="form-control form-control-sm param-input" name="label"
+                   value="{{ ch.label or '' }}" maxlength="64">
+          </td>
+          <td class="col-param">
+            <input type="text" class="form-control form-control-sm param-input" name="groupLabel"
+                   value="{{ ch.groupLabel or '' }}" maxlength="64">
+          </td>
+          {% set ct = ch.ctSpecification or {} %}
           <td class="col-param">
             <input type="number" class="form-control form-control-sm param-input text-end"
-                   name="phase_cal" value="{{ ch.settings.phase_cal }}" min="-32" max="31"
+                   name="ct_rating" value="{{ ct.currentRating or 50 }}" min="1" max="300" step="0.1"
                    style="width:80px;margin-left:auto">
           </td>
-
           <td class="col-param">
             <input type="number" class="form-control form-control-sm param-input text-end"
-                   name="igain" value="{{ ch.settings.igain }}" min="-2097152" max="2097151"
-                   style="width:90px;margin-left:auto">
-          </td>
-
-          <td class="col-param">
-            <input type="number" class="form-control form-control-sm param-input text-end"
-                   name="irmsos" value="{{ ch.settings.irmsos }}" min="-512" max="511"
+                   name="ct_voltage" value="{{ ct.voltageOutput or 1.0 }}" min="0.1" max="1.0" step="0.001"
                    style="width:80px;margin-left:auto">
           </td>
-
-          <td class="col-param text-center">
-            <div class="form-check d-flex justify-content-center mb-0">
-              <input class="form-check-input param-input" type="checkbox" name="no_load"
-                     {% if ch.settings.no_load %}checked{% endif %}>
-            </div>
+          <td class="col-param">
+            <input type="number" class="form-control form-control-sm param-input text-end"
+                   name="ct_scaling" value="{{ ct.scalingFraction or 0.0 }}" min="-0.5" max="0.5" step="0.01"
+                   style="width:80px;margin-left:auto">
           </td>
-
           <td class="col-param text-center">
-            <button class="btn btn-primary btn-sm save-btn px-2 py-0" title="Appliquer">
+            <button class="btn btn-primary btn-sm save-btn px-2 py-0">
               <i class="bi bi-check-lg"></i>
             </button>
-            <span class="save-ok text-success d-none ms-1"><i class="bi bi-check-circle-fill"></i></span>
-            <span class="save-err text-danger d-none ms-1"><i class="bi bi-x-circle-fill"></i></span>
+            <div class="mt-1">
+              <span class="save-ok  text-success d-none"><i class="bi bi-check-circle-fill"></i></span>
+              <span class="save-err text-danger  d-none" title=""></span>
+            </div>
           </td>
         </tr>
         {% endfor %}
@@ -157,77 +228,39 @@
     </table>
   </div>
 </div>
-
-<!-- Résumé global -->
-<div class="row g-3 mt-2">
-  {% set online = channels.values() | selectattr('online') | list %}
-  <div class="col-sm-6 col-lg-3">
-    <div class="card text-center py-3">
-      <div class="metric-label">Canaux en ligne</div>
-      <div class="metric-value">{{ online | length }} <small class="fs-6 text-muted">/ {{ channels | length }}</small></div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card text-center py-3">
-      <div class="metric-label">Puissance totale active</div>
-      <div class="metric-value" style="color:#34d399">
-        {{ (online | sum(attribute='active_power')) | round(1) }} <small class="fs-6">W</small>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card text-center py-3">
-      <div class="metric-label">Puissance apparente totale</div>
-      <div class="metric-value" style="color:#a78bfa">
-        {{ (online | sum(attribute='apparent_power')) | round(1) }} <small class="fs-6">VA</small>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card text-center py-3">
-      <div class="metric-label">Énergie totale</div>
-      <div class="metric-value" style="color:#60a5fa">
-        {{ (online | sum(attribute='active_energy')) | round(3) }} <small class="fs-6">Wh</small>
-      </div>
-    </div>
-  </div>
-</div>
+{% elif not error %}
+<div class="alert alert-secondary">Aucun canal retourné par le dispositif.</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Toggle colonnes paramètres
+// ── Toggle colonnes paramètres ──────────────────────────────────────────────
 const paramCols = document.querySelectorAll('.col-param');
 let paramsVisible = false;
-
 function applyVisibility() {
   paramCols.forEach(el => el.classList.toggle('d-none', !paramsVisible));
 }
 applyVisibility();
-
 document.getElementById('btn-toggle-params').addEventListener('click', () => {
   paramsVisible = !paramsVisible;
   applyVisibility();
-  document.getElementById('btn-toggle-params').innerHTML =
-    paramsVisible
-      ? '<i class="bi bi-eye-slash me-1"></i>Masquer paramètres'
-      : '<i class="bi bi-sliders me-1"></i>Paramètres';
+  document.getElementById('btn-toggle-params').innerHTML = paramsVisible
+    ? '<i class="bi bi-eye-slash me-1"></i>Masquer'
+    : '<i class="bi bi-sliders me-1"></i>Paramètres';
 });
 
-// Sauvegarde par ligne
+// ── Sauvegarde par ligne ─────────────────────────────────────────────────────
 document.querySelectorAll('.channel-row').forEach(row => {
   row.querySelector('.save-btn').addEventListener('click', async () => {
-    const ch = row.dataset.channel;
-    const okEl  = row.querySelector('.save-ok');
-    const errEl = row.querySelector('.save-err');
-    const data  = new URLSearchParams();
+    const ch   = row.dataset.channel;
+    const okEl = row.querySelector('.save-ok');
+    const errEl= row.querySelector('.save-err');
+    const data = new URLSearchParams();
 
     row.querySelectorAll('.param-input').forEach(input => {
-      if (input.type === 'checkbox') {
-        data.append(input.name, input.checked ? '1' : '0');
-      } else {
-        data.append(input.name, input.value);
-      }
+      if (input.type === 'checkbox') data.append(input.name, input.checked ? '1' : '0');
+      else data.append(input.name, input.value);
     });
 
     try {
@@ -236,24 +269,26 @@ document.querySelectorAll('.channel-row').forEach(row => {
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: data,
       });
-      if (!resp.ok) throw new Error();
-      okEl.classList.remove('d-none');
-      errEl.classList.add('d-none');
-      setTimeout(() => okEl.classList.add('d-none'), 2500);
-    } catch {
+      const json = await resp.json();
+      if (json.status === 'ok') {
+        okEl.classList.remove('d-none');
+        errEl.classList.add('d-none');
+        setTimeout(() => okEl.classList.add('d-none'), 2500);
+      } else {
+        throw new Error(json.message || 'Erreur');
+      }
+    } catch(e) {
+      errEl.innerHTML = `<i class="bi bi-x-circle-fill"></i>`;
+      errEl.title = e.message;
       errEl.classList.remove('d-none');
       okEl.classList.add('d-none');
     }
   });
 });
 
-// Compte à rebours auto-refresh
-let countdown = 10;
-const countEl = document.getElementById('countdown');
-setInterval(() => {
-  countdown--;
-  countEl.textContent = countdown;
-  if (countdown <= 0) location.reload();
-}, 1000);
+// ── Compte à rebours auto-refresh ───────────────────────────────────────────
+let n = 10;
+const el = document.getElementById('countdown');
+if (el) setInterval(() => { el.textContent = --n; if (n <= 0) location.reload(); }, 1000);
 </script>
 {% endblock %}

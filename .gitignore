@@ -219,3 +219,6 @@ __marimo__/
 
 # Fichier de configuration local (contient les identifiants)
 config.ini
+
+# Base de données time series locale
+*.db

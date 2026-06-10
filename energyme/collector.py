@@ -35,6 +35,8 @@ class BackgroundCollector:
         self._interval = interval
         self._stop = threading.Event()
         self._last_reset_ts: dict[int, float] = {}  # cooldown en mémoire par canal
+        self._auto_reset_enabled = True
+        self._config_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run,
             daemon=True,
@@ -51,6 +53,21 @@ class BackgroundCollector:
 
     def stop(self) -> None:
         self._stop.set()
+
+    @property
+    def auto_reset_enabled(self) -> bool:
+        with self._config_lock:
+            return self._auto_reset_enabled
+
+    @auto_reset_enabled.setter
+    def auto_reset_enabled(self, value: bool) -> None:
+        with self._config_lock:
+            self._auto_reset_enabled = bool(value)
+        log.info("Auto-reset %s", "activé" if value else "désactivé")
+
+    def clear_cooldowns(self) -> None:
+        """Vide les cooldowns en mémoire (utile après un effacement d'historique)."""
+        self._last_reset_ts.clear()
 
     @property
     def is_alive(self) -> bool:
@@ -80,9 +97,16 @@ class BackgroundCollector:
 
     def _check_stable_resets(self, channels: list[dict]) -> None:
         """Déclenche un off/on pour les canaux stables depuis ≥1 h sans réponse partielle."""
+        if not self.auto_reset_enabled:
+            return
+
         now = time.time()
 
-        active_idx = [ch["index"] for ch in channels if ch.get("metrics") is not None]
+        # Seuls les canaux actifs (flag active=True) ET avec des métriques sont candidats
+        active_idx = [
+            ch["index"] for ch in channels
+            if ch.get("active") and ch.get("metrics") is not None
+        ]
         if not active_idx:
             return
 
@@ -94,7 +118,7 @@ class BackgroundCollector:
 
         for ch in channels:
             idx = ch["index"]
-            if not ch.get("active") or ch.get("partial_metrics"):
+            if idx not in active_idx or ch.get("partial_metrics"):
                 continue
             tr = trends.get(idx)
             if not tr or tr["direction"] != "stable":

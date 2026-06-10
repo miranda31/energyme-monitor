@@ -50,8 +50,10 @@ def main(global_config, **settings):
     config.add_route("update_channel", "/channel/{channel}/update", request_method="POST")
     config.add_route("config",         "/config")
     config.add_route("system",         "/system")
-    config.add_route("trends_api",     "/api/trends")
-    config.add_route("history_api",    "/api/history/{channel}")
+    config.add_route("trends_api",        "/api/trends")
+    config.add_route("history_clear_api", "/api/history/clear")   # avant history_api
+    config.add_route("history_api",       "/api/history/{channel}")
+    config.add_route("auto_reset_api",    "/api/auto-reset")
 
     _init_timeseries(config, settings)
 

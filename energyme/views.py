@@ -125,6 +125,39 @@ def history_api_view(request):
     return {"channel": channel, "data": ts_store.get_history(channel, minutes=minutes)}
 
 
+# ── API Auto-reset ────────────────────────────────────────────────────────────
+
+@view_config(route_name="auto_reset_api", renderer="json")
+def auto_reset_api_view(request):
+    """GET → état actuel ; POST {"enabled": true/false} → modifier."""
+    collector = getattr(request.registry, "collector", None)
+    if collector is None:
+        return {"error": "Collecteur indisponible"}
+    if request.method == "POST":
+        try:
+            body = request.json_body
+            collector.auto_reset_enabled = bool(body.get("enabled", True))
+        except (ValueError, AttributeError):
+            from pyramid.httpexceptions import HTTPBadRequest
+            raise HTTPBadRequest("Corps JSON invalide")
+    return {"enabled": collector.auto_reset_enabled}
+
+
+# ── API Effacement historique ──────────────────────────────────────────────────
+
+@view_config(route_name="history_clear_api", renderer="json", request_method="POST")
+def history_clear_api_view(request):
+    """POST /api/history/clear — efface toutes les mesures et resets."""
+    ts_store = getattr(request.registry, "ts_store", None)
+    if not ts_store:
+        return {"error": "Time series store indisponible"}
+    collector = getattr(request.registry, "collector", None)
+    if collector:
+        collector.clear_cooldowns()
+    deleted = ts_store.clear_all()
+    return {"status": "ok", "deleted": deleted}
+
+
 # ── Mise à jour d'un canal ────────────────────────────────────────────────────
 
 @view_config(route_name="update_channel", renderer="json")

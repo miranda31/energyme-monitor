@@ -14,9 +14,23 @@
     <p class="mb-0 small" style="color:#94a3b8">Auto-refresh <span id="countdown" style="color:#e2e8f0;font-weight:600">10</span>s</p>
     {% endif %}
   </div>
-  <div class="d-flex align-items-center gap-2">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
     <button class="btn btn-sm btn-outline-secondary" id="btn-toggle-params">
       <i class="bi bi-sliders me-1"></i>Paramètres
+    </button>
+    <!-- Toggle auto-reset -->
+    <div class="d-flex align-items-center gap-1 border border-secondary rounded px-2 py-1"
+         style="background:#0f1117" title="Active/désactive le reset automatique des canaux stables">
+      <span class="small" style="color:#94a3b8;white-space:nowrap">Auto-reset</span>
+      <div class="form-check form-switch mb-0 ms-1">
+        <input class="form-check-input" type="checkbox" id="toggle-auto-reset"
+               role="switch" style="cursor:pointer;width:2.2em;height:1.15em">
+      </div>
+    </div>
+    <!-- Bouton effacer historique -->
+    <button class="btn btn-sm btn-outline-danger" id="btn-clear-history"
+            title="Effacer tout l'historique time series">
+      <i class="bi bi-trash me-1"></i>Historique
     </button>
     <!-- Sélecteur de refresh -->
     <div class="input-group input-group-sm" style="width:auto">
@@ -346,6 +360,48 @@ document.querySelectorAll('.channel-row').forEach(row => {
       okEl.classList.add('d-none');
     }
   });
+});
+
+// ── Toggle auto-reset ────────────────────────────────────────────────────────
+const autoResetToggle = document.getElementById('toggle-auto-reset');
+
+async function loadAutoResetState() {
+  try {
+    const r = await fetch('/api/auto-reset');
+    const j = await r.json();
+    autoResetToggle.checked = j.enabled !== false;
+  } catch { autoResetToggle.checked = true; }
+}
+
+autoResetToggle.addEventListener('change', async () => {
+  try {
+    await fetch('/api/auto-reset', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: autoResetToggle.checked}),
+    });
+  } catch {
+    autoResetToggle.checked = !autoResetToggle.checked; // rollback visuel
+  }
+});
+
+loadAutoResetState();
+
+// ── Effacement historique ─────────────────────────────────────────────────────
+document.getElementById('btn-clear-history').addEventListener('click', async () => {
+  if (!confirm('Effacer tout l\'historique time series ?\nLes données de tendance et les resets seront supprimés.')) return;
+  try {
+    const r = await fetch('/api/history/clear', {method: 'POST'});
+    const j = await r.json();
+    if (j.status === 'ok') {
+      alert(`Historique effacé (${j.deleted} enregistrements supprimés).`);
+      location.reload();
+    } else {
+      alert('Erreur : ' + (j.error || 'inconnue'));
+    }
+  } catch(e) {
+    alert('Erreur réseau : ' + e.message);
+  }
 });
 
 // ── Refresh configurable ─────────────────────────────────────────────────────

@@ -168,6 +168,14 @@ class TimeSeriesStore:
             result[r["ch"]] = r["last_ts"]
         return result
 
+    def clear_all(self) -> int:
+        """Supprime toutes les mesures et tous les resets. Retourne le nombre de lignes supprimées."""
+        with self._write_lock, self._conn() as c:
+            n1 = c.execute("DELETE FROM ts_measurements").rowcount
+            n2 = c.execute("DELETE FROM channel_resets").rowcount
+        log.info("Historique effacé : %d mesures + %d resets supprimés", n1, n2)
+        return n1 + n2
+
     def stats(self) -> dict:
         """Statistiques rapides sur le contenu de la base."""
         with self._conn() as c:

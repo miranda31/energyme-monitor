@@ -65,9 +65,13 @@ def metrics_view(request):
         log.warning("Erreur métriques : %s", exc)
 
     last_resets: dict = {}
+    load_discard: dict = {}
     if ts_store and channels:
+        active_idx = [
+            ch["index"] for ch in channels
+            if ch.get("active") and ch.get("metrics") is not None
+        ]
         try:
-            active_idx = [ch["index"] for ch in channels if ch.get("metrics") is not None]
             trends = ts_store.get_all_trends(active_idx)
         except Exception:
             log.exception("Erreur lecture tendances")
@@ -77,16 +81,21 @@ def metrics_view(request):
             last_resets = {idx: _format_reset_ts(ts) for idx, ts in raw_resets.items()}
         except Exception:
             log.exception("Erreur lecture resets")
+        try:
+            load_discard = ts_store.get_all_load_discard_stats(active_idx)
+        except Exception:
+            log.exception("Erreur lecture scores load discard")
 
     return {
-        "channels":     channels,
-        "frequency":    frequency,
-        "edit_fields":  CHANNEL_EDIT_FIELDS,
-        "role_labels":  ROLE_LABELS,
-        "error":        error,
-        "page":         "metrics",
-        "trends":       trends,
-        "last_resets":  last_resets,
+        "channels":      channels,
+        "frequency":     frequency,
+        "edit_fields":   CHANNEL_EDIT_FIELDS,
+        "role_labels":   ROLE_LABELS,
+        "error":         error,
+        "page":          "metrics",
+        "trends":        trends,
+        "last_resets":   last_resets,
+        "load_discard":  load_discard,
     }
 
 
@@ -141,6 +150,28 @@ def auto_reset_api_view(request):
             from pyramid.httpexceptions import HTTPBadRequest
             raise HTTPBadRequest("Corps JSON invalide")
     return {"enabled": collector.auto_reset_enabled}
+
+
+# ── API Load Discard (WDRR) ───────────────────────────────────────────────────
+
+@view_config(route_name="load_discard_api", renderer="json")
+def load_discard_api_view(request):
+    """GET /api/load-discard?minutes=60 — scores d'instabilité WDRR par canal."""
+    ts_store = getattr(request.registry, "ts_store", None)
+    if not ts_store:
+        return {"error": "Time series store indisponible"}
+
+    minutes = min(int(request.params.get("minutes", 60)), 1440)
+    try:
+        client = _get_client(request)
+        channels = client.get_channels_with_metrics()
+        active_idx = [
+            ch["index"] for ch in channels
+            if ch.get("active") and ch.get("metrics") is not None
+        ]
+        return ts_store.get_all_load_discard_stats(active_idx, minutes=minutes)
+    except EnergyMeError as exc:
+        return {"error": str(exc)}
 
 
 # ── API Effacement historique ──────────────────────────────────────────────────

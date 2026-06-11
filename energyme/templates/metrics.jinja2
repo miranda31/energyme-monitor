@@ -128,6 +128,8 @@
           <th class="text-end col-energy" style="min-width:110px">↓ Import (Wh)</th>
           <th class="text-end col-energy" style="min-width:110px">↑ Export (Wh)</th>
           <th class="text-center" style="min-width:75px;font-size:.75rem" title="Dernier off/on automatique">Off/On</th>
+          <th class="text-center" style="min-width:55px;font-size:.75rem"
+              title="Score de load discard WDRR (0=sain, 100=discardé). Indicateurs : valeurs figées, flip de polarité, instabilité, delta de lecture croissant.">LD</th>
 
           <!-- Colonnes paramètres (masquées par défaut) -->
           <th class="col-param" style="min-width:55px">Actif</th>
@@ -240,6 +242,24 @@
           {% set reset_str = last_resets.get(ch.index) %}
           <td class="text-center font-monospace" style="font-size:.72rem;color:{% if reset_str %}#fbbf24{% else %}#475569{% endif %}">
             {{ reset_str or '—' }}
+          </td>
+
+          {# Colonne Load Discard score WDRR #}
+          {% set ld = load_discard.get(ch.index) if load_discard else none %}
+          <td class="text-center">
+            {% if ld and ld.points >= 3 %}
+              {% set sc = ld.score %}
+              {% if sc < 25 %}{% set ld_color = 'success' %}
+              {% elif sc < 50 %}{% set ld_color = 'warning' %}
+              {% else %}{% set ld_color = 'danger' %}{% endif %}
+              <span class="badge bg-{{ ld_color }} bg-opacity-25 text-{{ ld_color }}"
+                    style="font-size:.7rem;border:1px solid;cursor:default"
+                    title="Score LD {{ sc }}/100&#10;Figé : {{ '%.0f'|format((ld.frozen_ratio or 0)*100) }}%&#10;Flips polarité : {{ ld.polarity_flips }}&#10;CV instabilité : {{ '%.2f'|format(ld.instability_cv or 0) }}&#10;Δ lecture (s/tick) : {{ ld.wdrr_delta_trend or '—' }}">
+                {{ sc }}
+              </span>
+            {% else %}
+              <span style="color:#475569;font-size:.75rem">—</span>
+            {% endif %}
           </td>
 
           <!-- Paramètres éditables -->

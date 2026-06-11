@@ -168,6 +168,107 @@ class TimeSeriesStore:
             result[r["ch"]] = r["last_ts"]
         return result
 
+    def get_load_discard_stats(
+        self, channel_index: int, minutes: int = 60
+    ) -> dict:
+        """
+        Calcule un score de load discard WDRR pour un canal (0 = sain, 100 = discardé).
+
+        Indicateurs combinés :
+          frozen_ratio     – % de paires consécutives avec Δpw < 0.5 W   → 50 pts max
+          polarity_flips   – changements de signe de pw (hors ±5 W)      → 20 pts max
+          instability_cv   – coefficient de variation de pw               → 20 pts max
+          wdrr_delta_trend – pente des intervalles entre lectures utiles  → 10 pts max
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).timestamp()
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT ts, pw FROM ts_measurements WHERE ch=? AND ts>=? ORDER BY ts",
+                (channel_index, cutoff),
+            ).fetchall()
+
+        base: dict = {
+            "score": 0,
+            "frozen_ratio": None,
+            "polarity_flips": 0,
+            "instability_cv": None,
+            "wdrr_delta_trend": None,
+            "points": len(rows),
+        }
+        if len(rows) < 3:
+            return base
+
+        pw_vals = [r["pw"] for r in rows if r["pw"] is not None]
+        ts_vals = [r["ts"] for r in rows if r["pw"] is not None]
+        if len(pw_vals) < 3:
+            return base
+
+        # ── frozen_ratio ──────────────────────────────────────────────────────
+        frozen_pairs = sum(
+            1 for a, b in zip(pw_vals, pw_vals[1:]) if abs(b - a) < 0.5
+        )
+        total_pairs = len(pw_vals) - 1
+        frozen_ratio = frozen_pairs / total_pairs
+        base["frozen_ratio"] = round(frozen_ratio, 3)
+
+        # ── polarity_flips ────────────────────────────────────────────────────
+        # On filtre les valeurs hors zone neutre ±5 W pour ignorer le bruit
+        significant = [(t, p) for t, p in zip(ts_vals, pw_vals) if abs(p) > 5.0]
+        flips = 0
+        for i in range(1, len(significant)):
+            if significant[i][1] * significant[i - 1][1] < 0:
+                flips += 1
+        base["polarity_flips"] = flips
+
+        # ── instability_cv ────────────────────────────────────────────────────
+        n = len(pw_vals)
+        mean_pw = sum(pw_vals) / n
+        cv: float | None = None
+        if abs(mean_pw) > 1.0:
+            variance = sum((p - mean_pw) ** 2 for p in pw_vals) / n
+            std_pw = variance ** 0.5
+            cv = round(std_pw / abs(mean_pw), 3)
+        base["instability_cv"] = cv
+
+        # ── wdrr_delta_trend ──────────────────────────────────────────────────
+        # Intervalles entre lectures où la valeur a effectivement changé (Δ > 0.5 W)
+        useful_ts = [
+            ts_vals[i]
+            for i in range(1, len(pw_vals))
+            if abs(pw_vals[i] - pw_vals[i - 1]) > 0.5
+        ]
+        wdrr_slope: float | None = None
+        if len(useful_ts) >= 4:
+            intervals = [b - a for a, b in zip(useful_ts, useful_ts[1:])]
+            xi = list(range(len(intervals)))
+            xm = sum(xi) / len(xi)
+            ym = sum(intervals) / len(intervals)
+            denom = sum((x - xm) ** 2 for x in xi)
+            if denom:
+                wdrr_slope = round(
+                    sum((x - xm) * (y - ym) for x, y in zip(xi, intervals)) / denom,
+                    2,
+                )
+        base["wdrr_delta_trend"] = wdrr_slope
+
+        # ── score composite ───────────────────────────────────────────────────
+        s = 0.0
+        s += frozen_ratio * 50
+        s += min(flips, 10) * 2.0                          # 20 pts max sur 10 flips
+        if cv is not None:
+            s += min(cv, 2.0) * 10                         # 20 pts max sur CV=2
+        if wdrr_slope is not None and wdrr_slope > 0:
+            s += min(wdrr_slope / 30, 1.0) * 10            # 10 pts max
+
+        base["score"] = min(100, round(s))
+        return base
+
+    def get_all_load_discard_stats(
+        self, channel_indexes: list[int], minutes: int = 60
+    ) -> dict[int, dict]:
+        """Calcule le score de load discard pour une liste de canaux."""
+        return {idx: self.get_load_discard_stats(idx, minutes) for idx in channel_indexes}
+
     def clear_all(self) -> int:
         """Supprime toutes les mesures et tous les resets. Retourne le nombre de lignes supprimées."""
         with self._write_lock, self._conn() as c:

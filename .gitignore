@@ -220,7 +220,5 @@ __marimo__/
 # Fichier de configuration local (contient les identifiants)
 config.ini
 
-# Base de données SQLite time series (données locales, non versionnées)
+# Base de données time series locale
 *.db
-*.db-shm
-*.db-wal

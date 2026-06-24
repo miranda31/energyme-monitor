@@ -61,6 +61,20 @@
 {% endif %}
 
 {% if channels %}
+{% set tw_h = (trend_minutes | default(15)) / 60.0 %}
+{% set ns_ut = namespace(g_in=0.0, g_out=0.0, l_in=0.0, valid=false) %}
+{% for ch in channels %}
+  {% set tr_ch = trends.get(ch.index) if trends else none %}
+  {% if tr_ch %}
+    {% if ch.role == 'grid' and ch.metrics %}
+      {% set ns_ut.g_in  = (tr_ch.e_in_delta  or 0) %}
+      {% set ns_ut.g_out = (tr_ch.e_out_delta or 0) %}
+      {% set ns_ut.valid = true %}
+    {% elif ch.role == 'load' and ch.metrics and tr_ch.e_in_delta is not none %}
+      {% set ns_ut.l_in = ns_ut.l_in + tr_ch.e_in_delta %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
 <!-- Résumé global par rôle -->
 <div class="row g-3 mb-4" id="summary-cards">
   {% set grid_ch    = channels | selectattr('role', 'equalto', 'grid')     | selectattr('metrics') | list %}
@@ -73,7 +87,7 @@
     {{ ns.total | round(0) | int }}
   {% endmacro %}
 
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-lightning-charge me-1"></i>Réseau</div>
       {% if grid_ch %}
@@ -87,25 +101,44 @@
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-sun me-1"></i>Production</div>
       <div class="metric-value text-warning">{{ sum_power(pv_ch) }} <small class="fs-6">W</small></div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-plug me-1"></i>Consommation</div>
       <div class="metric-value text-info">{{ sum_power(load_ch) }} <small class="fs-6">W</small></div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label">Canaux actifs</div>
       <div class="metric-value">
         {{ channels | selectattr('active') | list | length }}
         <small class="fs-6 text-muted">/ {{ channels | length }}</small>
       </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg">
+    <div class="card text-center py-3">
+      <div class="metric-label">Non suivi <span style="color:#475569;font-size:.7rem">(Wh)</span></div>
+      {% if ns_ut.valid and tw_h > 0 %}
+        {% set ut_wh = ns_ut.g_in - ns_ut.g_out - ns_ut.l_in %}
+        {% set ut_w  = (ut_wh / tw_h) | round(0) | int %}
+        {% if ut_w < 100 %}{% set ut_color = 'success' %}
+        {% elif ut_w < 500 %}{% set ut_color = 'warning' %}
+        {% else %}{% set ut_color = 'danger' %}{% endif %}
+        <div class="metric-value text-{{ ut_color }}">
+          {{ ut_w }} <small class="fs-6">W</small>
+        </div>
+        <div class="small text-muted">moy. {{ trend_minutes | default(15) }} min</div>
+      {% else %}
+        <div class="metric-value text-muted">—</div>
+        <div class="small text-muted">historique insuffisant</div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -128,8 +161,8 @@
           <th class="text-end col-energy" style="min-width:110px">↓ Import (Wh)</th>
           <th class="text-end col-energy" style="min-width:110px">↑ Export (Wh)</th>
           <th class="text-center" style="min-width:75px;font-size:.75rem" title="Dernier off/on automatique">Off/On</th>
-          <th class="text-center" style="min-width:55px;font-size:.75rem"
-              title="Score de load discard WDRR (0=sain, 100=discardé). Indicateurs : valeurs figées, flip de polarité, instabilité, delta de lecture croissant.">LD</th>
+          <th class="text-center" style="min-width:70px;font-size:.75rem"
+              title="Score de load discard WDRR (0=sain, 100=discardé). Si score ≥ 25, l'impact estimé en watts (énergie Wh/fenêtre × score/100) est affiché sous le badge.">LD</th>
 
           <!-- Colonnes paramètres (masquées par défaut) -->
           <th class="col-param" style="min-width:55px">Actif</th>

@@ -222,3 +222,5 @@ config.ini
 
 # Base de données time series locale
 *.db
+*.db-shm
+*.db-wal

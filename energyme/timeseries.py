@@ -172,13 +172,15 @@ class TimeSeriesStore:
         self, channel_index: int, minutes: int = 60
     ) -> dict:
         """
-        Calcule un score de load discard WDRR pour un canal (0 = sain, 100 = discardé).
+        Calcule un score de qualité signal pour un canal (0 = sain, 100 = problématique).
 
         Indicateurs combinés :
-          frozen_ratio     – % de paires consécutives avec Δpw < 0.5 W   → 50 pts max
-          polarity_flips   – changements de signe de pw (hors ±5 W)      → 20 pts max
-          instability_cv   – coefficient de variation de pw               → 20 pts max
-          wdrr_delta_trend – pente des intervalles entre lectures utiles  → 10 pts max
+          frozen_ratio     – % de paires consécutives avec Δpw < 0.5 W        → 50 pts max
+          polarity_flips   – changements de signe de pw (hors ±5 W)           → 20 pts max
+          instability_cv   – coefficient de variation de pw                    → 20 pts max
+          wdrr_delta_trend – pente des intervalles entre lectures avec Δpw>0.5 → 10 pts max
+                             (détecte les lectures de plus en plus espacées,
+                              quelle qu'en soit la cause : Wi-Fi, hardware, firmware)
         """
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).timestamp()
         with self._conn() as c:

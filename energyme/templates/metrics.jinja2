@@ -61,6 +61,19 @@
 {% endif %}
 
 {% if channels %}
+{% set tw_h = (trend_minutes | default(15)) / 60.0 %}
+{% set ns_ut = namespace(g_net=0.0, other_net=0.0, valid=false) %}
+{% for ch in channels %}
+  {% set tr_ch = trends.get(ch.index) if trends else none %}
+  {% if tr_ch and ch.metrics %}
+    {% if ch.role == 'grid' %}
+      {% set ns_ut.g_net = (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
+      {% set ns_ut.valid = true %}
+    {% elif tr_ch.e_in_delta is not none or tr_ch.e_out_delta is not none %}
+      {% set ns_ut.other_net = ns_ut.other_net + (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
 <!-- Résumé global par rôle -->
 <div class="row g-3 mb-4" id="summary-cards">
   {% set grid_ch    = channels | selectattr('role', 'equalto', 'grid')     | selectattr('metrics') | list %}
@@ -73,7 +86,7 @@
     {{ ns.total | round(0) | int }}
   {% endmacro %}
 
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-lightning-charge me-1"></i>Réseau</div>
       {% if grid_ch %}
@@ -87,25 +100,44 @@
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-sun me-1"></i>Production</div>
       <div class="metric-value text-warning">{{ sum_power(pv_ch) }} <small class="fs-6">W</small></div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-plug me-1"></i>Consommation</div>
       <div class="metric-value text-info">{{ sum_power(load_ch) }} <small class="fs-6">W</small></div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label">Canaux actifs</div>
       <div class="metric-value">
         {{ channels | selectattr('active') | list | length }}
         <small class="fs-6 text-muted">/ {{ channels | length }}</small>
       </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg">
+    <div class="card text-center py-3">
+      <div class="metric-label">Non suivi <span style="color:#475569;font-size:.7rem">(Wh)</span></div>
+      {% if ns_ut.valid and tw_h > 0 %}
+        {% set ut_wh = ns_ut.g_net - ns_ut.other_net %}
+        {% set ut_w  = (ut_wh / tw_h) | round(0) | int %}
+        {% if ut_w < 100 %}{% set ut_color = 'success' %}
+        {% elif ut_w < 500 %}{% set ut_color = 'warning' %}
+        {% else %}{% set ut_color = 'danger' %}{% endif %}
+        <div class="metric-value text-{{ ut_color }}">
+          {{ ut_w }} <small class="fs-6">W</small>
+        </div>
+        <div class="small text-muted">moy. {{ trend_minutes | default(15) }} min</div>
+      {% else %}
+        <div class="metric-value text-muted">—</div>
+        <div class="small text-muted">historique insuffisant</div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -128,8 +160,8 @@
           <th class="text-end col-energy" style="min-width:110px">↓ Import (Wh)</th>
           <th class="text-end col-energy" style="min-width:110px">↑ Export (Wh)</th>
           <th class="text-center" style="min-width:75px;font-size:.75rem" title="Dernier off/on automatique">Off/On</th>
-          <th class="text-center" style="min-width:55px;font-size:.75rem"
-              title="Score de load discard WDRR (0=sain, 100=discardé). Indicateurs : valeurs figées, flip de polarité, instabilité, delta de lecture croissant.">LD</th>
+          <th class="text-center" style="min-width:70px;font-size:.75rem"
+              title="Score qualité signal (0=sain, 100=problématique). Indicateurs : mesures figées, flips de polarité, instabilité CV, intervalles de lecture croissants. Si score ≥ 25, impact estimé en W affiché sous le badge.">LD</th>
 
           <!-- Colonnes paramètres (masquées par défaut) -->
           <th class="col-param" style="min-width:55px">Actif</th>
@@ -244,7 +276,7 @@
             {{ reset_str or '—' }}
           </td>
 
-          {# Colonne Load Discard score WDRR #}
+          {# Colonne qualité signal #}
           {% set ld = load_discard.get(ch.index) if load_discard else none %}
           <td class="text-center">
             {% if ld and ld.points >= 3 %}
@@ -254,9 +286,20 @@
               {% else %}{% set ld_color = 'danger' %}{% endif %}
               <span class="badge bg-{{ ld_color }} bg-opacity-25 text-{{ ld_color }}"
                     style="font-size:.7rem;border:1px solid;cursor:default"
-                    title="Score LD {{ sc }}/100&#10;Figé : {{ '%.0f'|format((ld.frozen_ratio or 0)*100) }}%&#10;Flips polarité : {{ ld.polarity_flips }}&#10;CV instabilité : {{ '%.2f'|format(ld.instability_cv or 0) }}&#10;Δ lecture (s/tick) : {{ ld.wdrr_delta_trend or '—' }}">
+                    title="Score signal {{ sc }}/100&#10;Figé : {{ '%.0f'|format((ld.frozen_ratio or 0)*100) }}%&#10;Flips polarité : {{ ld.polarity_flips }}&#10;CV instabilité : {{ '%.2f'|format(ld.instability_cv or 0) }}&#10;Δ intervalles (s/tick) : {{ ld.wdrr_delta_trend or '—' }}">
                 {{ sc }}
               </span>
+              {% if sc >= 25 %}
+                {% set ld_tr = trends.get(ch.index) if trends else none %}
+                {% if ld_tr and tw_h > 0 %}
+                  {% set ld_e_net = (ld_tr.e_in_delta or 0) - (ld_tr.e_out_delta or 0) %}
+                  {% set ld_avg_w = (ld_e_net / tw_h) | abs %}
+                  {% if ld_avg_w > 5 %}
+                    {% set ld_impact = (ld_avg_w * sc / 100) | round(0) | int %}
+                    <div style="font-size:.65rem;color:#94a3b8;margin-top:1px">~{{ ld_impact }} W</div>
+                  {% endif %}
+                {% endif %}
+              {% endif %}
             {% else %}
               <span style="color:#475569;font-size:.75rem">—</span>
             {% endif %}

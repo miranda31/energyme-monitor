@@ -96,6 +96,7 @@ def metrics_view(request):
         "trends":        trends,
         "last_resets":   last_resets,
         "load_discard":  load_discard,
+        "trend_minutes": 15,
     }
 
 

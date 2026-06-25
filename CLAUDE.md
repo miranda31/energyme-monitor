@@ -105,12 +105,12 @@ Synchronisé au chargement de page via `GET /api/auto-reset`.
 
 ---
 
-## Score de Load Discard (WDRR)
+## Score de qualité signal (colonne LD)
 
-Contexte : l'ESP32 utilise un algorithme WDRR (Weighted Deficit Round Robin) pour sonder les
-capteurs ADE7953. Quand un canal devient instable (mesures figées, bruit ADC, flip de polarité),
-le WDRR augmente l'intervalle entre lectures ou discard complètement le canal — réplication du
-bug décrit dans l'issue #149 du firmware energyme 2.0.1.
+Score composite de qualité des mesures d'un canal (0 = sain, 100 = problématique).
+Firmware 2.0.3+ : le bug WDRR load-discard de l'issue #149 (2.0.1) est corrigé.
+Le score reste utile pour détecter des problèmes hardware (TC mal serré, Wi-Fi instable,
+capteur bruité) indépendamment du firmware.
 
 **Calcul** (`timeseries.py` / `get_load_discard_stats`, fenêtre configurable, défaut 60 min) :
 
@@ -119,9 +119,10 @@ bug décrit dans l'issue #149 du firmware energyme 2.0.1.
 | `frozen_ratio` | % de paires consécutives avec Δpw < 0,5 W | 50 pts |
 | `polarity_flips` | Changements de signe de `pw` (hors zone ±5 W) | 20 pts (plafonné à 10 flips) |
 | `instability_cv` | Coefficient de variation de `pw` (σ/μ, si μ > 1 W) | 20 pts (plafonné à CV=2) |
-| `wdrr_delta_trend` | Pente des intervalles entre lectures utiles (W ≠ 0) | 10 pts |
+| `wdrr_delta_trend` | Pente des intervalles entre lectures utiles (Δpw > 0,5 W) | 10 pts |
 
-`load_discard_score` : entier 0-100 (0 = sain, 100 = canal probablement load-discardé).
+`load_discard_score` : entier 0-100. Si score ≥ 25, l'impact estimé en watts
+(énergie moyenne sur la fenêtre × score/100) est affiché sous le badge.
 
 **API** : `GET /api/load-discard?minutes=60` → `{channel_index: {score, frozen_ratio, ...}, ...}`
 

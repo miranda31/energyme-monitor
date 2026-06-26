@@ -100,6 +100,118 @@ def metrics_view(request):
     }
 
 
+# ── API Résumé global ────────────────────────────────────────────────────────
+
+TREND_MINUTES = 15
+
+
+def _compute_untracked(channels: list, trends: dict, trend_minutes: int = TREND_MINUTES) -> dict:
+    """
+    Calcule le bilan non-suivi en Wh puis en W moyen.
+
+    Convention CT CH2 (inverter) : la production s'accumule dans e_in.
+    Pour les rôles pv/inverter on inverse donc le signe de la contribution.
+    """
+    tw_h = trend_minutes / 60.0
+    g_net = 0.0
+    other_net = 0.0
+    valid = False
+
+    for ch in channels:
+        role = ch.get("role", "load")
+        tr = trends.get(ch["index"]) if trends else None
+        if tr is None or not ch.get("metrics"):
+            continue
+        e_in  = tr.get("e_in_delta")  or 0.0
+        e_out = tr.get("e_out_delta") or 0.0
+        if role == "grid":
+            g_net = e_in - e_out
+            valid = True
+        elif role in ("pv", "inverter"):
+            other_net += -e_in + e_out
+        else:
+            other_net += e_in - e_out
+
+    ut_wh = g_net - other_net
+    ut_w  = round(ut_wh / tw_h) if (tw_h > 0 and valid) else None
+    return {
+        "power_w":       ut_w,
+        "wh":            round(ut_wh, 3) if valid else None,
+        "valid":         valid,
+        "trend_minutes": trend_minutes,
+    }
+
+
+@view_config(route_name="summary_api", renderer="json")
+def summary_api_view(request):
+    """GET /api/summary — bilan global temps réel + non-suivi Wh."""
+    ts_store = getattr(request.registry, "ts_store", None)
+    client   = _get_client(request)
+
+    try:
+        channels = client.get_channels_with_metrics()
+    except EnergyMeError as exc:
+        return {"error": str(exc)}
+
+    trends: dict = {}
+    if ts_store and channels:
+        active_idx = [ch["index"] for ch in channels if ch.get("metrics") is not None]
+        try:
+            trends = ts_store.get_all_trends(active_idx, minutes=TREND_MINUTES)
+        except Exception:
+            log.exception("Erreur tendances summary")
+
+    grid_power = prod_power = load_power = None
+    grid_direction = "import"
+    for ch in channels:
+        role    = ch.get("role", "load")
+        metrics = ch.get("metrics") or {}
+        pw      = metrics.get("activePower")
+        if pw is None:
+            continue
+        if role == "grid":
+            grid_power     = round(pw)
+            grid_direction = "export" if pw < 0 else "import"
+        elif role in ("pv", "inverter"):
+            prod_power = (prod_power or 0) + pw
+        else:
+            load_power = (load_power or 0) + pw
+
+    total    = len(channels)
+    active   = sum(1 for ch in channels if ch.get("active"))
+
+    return {
+        "grid":        {"power_w": grid_power, "direction": grid_direction},
+        "production":  {"power_w": round(prod_power)  if prod_power  is not None else None},
+        "consumption": {"power_w": round(load_power)  if load_power  is not None else None},
+        "untracked":   _compute_untracked(channels, trends),
+        "channels":    {"active": active, "total": total},
+    }
+
+
+# ── Page Graphiques ───────────────────────────────────────────────────────────
+
+@view_config(route_name="graphs", renderer="graphs.jinja2")
+def graphs_view(request):
+    """GET /graphs — page de visualisation des tendances historiques."""
+    client = _get_client(request)
+    channels = []
+    error    = None
+
+    try:
+        channels = client.get_channels_with_metrics()
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur chargement canaux (graphs) : %s", exc)
+
+    return {
+        "channels":    channels,
+        "role_labels": ROLE_LABELS,
+        "error":       error,
+        "page":        "graphs",
+    }
+
+
 # ── API Time Series ───────────────────────────────────────────────────────────
 
 @view_config(route_name="trends_api", renderer="json")

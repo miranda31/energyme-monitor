@@ -105,6 +105,29 @@ Synchronisé au chargement de page via `GET /api/auto-reset`.
 
 ---
 
+## Carte "Non suivi" — consommation non mesurée
+
+Voir `UNTRACKED_CONSUMPTION.md` pour le raisonnement mathématique complet.
+
+**Principe** : utiliser les deltas Wh (accumulateurs matériels ADE7953) plutôt que la
+puissance instantanée `activePower`, qui est périmée de jusqu'à 6,2 s pour les canaux CH1–CH15
+(rotation round-robin du MUX). Les accumulateurs intègrent en continu indépendamment du MUX.
+
+**Formule** sur la fenêtre de tendance `trend_minutes` (défaut 15 min) :
+
+```
+non_suivi_Wh = (CH0_ein − CH0_eout) − Σ(CHi_ein − CHi_eout)   pour i = 1..15
+non_suivi_W  = non_suivi_Wh / (trend_minutes / 60)
+```
+
+Les canaux producteurs (role=`inverter`, `pv`) ont `e_out > e_in` → contribution négative dans la
+somme → leur production s'additionne correctement à l'énergie disponible dans le bilan.
+
+**Implémentation** : `metrics.jinja2`, namespace Jinja2 `ns_ut`, calculé avant les cartes de synthèse.  
+**Couleurs** : < 100 W → vert, 100–499 W → orange, ≥ 500 W → rouge.
+
+---
+
 ## Score de qualité signal (colonne LD)
 
 Score composite de qualité des mesures d'un canal (0 = sain, 100 = problématique).

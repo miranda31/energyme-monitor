@@ -58,6 +58,8 @@ def main(global_config, **settings):
     config.add_route("history_api",       "/api/history/{channel}")
     config.add_route("auto_reset_api",    "/api/auto-reset")
     config.add_route("load_discard_api",  "/api/load-discard")
+    config.add_route("summary_api",       "/api/summary")
+    config.add_route("graphs",            "/graphs")
 
     _init_timeseries(config, settings)
 

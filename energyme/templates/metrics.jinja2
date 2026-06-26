@@ -70,7 +70,13 @@
       {% set ns_ut.g_net = (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
       {% set ns_ut.valid = true %}
     {% elif tr_ch.e_in_delta is not none or tr_ch.e_out_delta is not none %}
-      {% set ns_ut.other_net = ns_ut.other_net + (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
+      {# Pour inverter/pv : le CT mesure la production en e_in (courant vers la maison).
+         On inverse le signe pour que la production AUGMENTE l'énergie disponible. #}
+      {% if ch.role in ['pv', 'inverter'] %}
+        {% set ns_ut.other_net = ns_ut.other_net - (tr_ch.e_in_delta or 0) + (tr_ch.e_out_delta or 0) %}
+      {% else %}
+        {% set ns_ut.other_net = ns_ut.other_net + (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
+      {% endif %}
     {% endif %}
   {% endif %}
 {% endfor %}

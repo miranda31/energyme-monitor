@@ -1,0 +1,103 @@
+version: "3.9"
+
+# Stack de collecte de logs EnergyMe
+# Démarre : docker compose -f docker-compose.syslog.yml up -d
+# Graylog UI : http://localhost:9000  (admin / ${GRAYLOG_ROOT_PASSWORD})
+# MCP Server  : http://localhost:8000
+# Syslog UDP  : port 514 de la machine hôte → input Graylog
+
+services:
+
+  # ── MongoDB (métadonnées Graylog) ──────────────────────────────────────────
+  mongodb:
+    image: mongo:6
+    container_name: energyme-mongodb
+    volumes:
+      - mongodb_data:/data/db
+    networks: [graylog]
+    restart: unless-stopped
+
+  # ── OpenSearch (stockage des logs) ────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2
+    container_name: energyme-opensearch
+    environment:
+      - cluster.name=graylog
+      - node.name=opensearch
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks: [graylog]
+    restart: unless-stopped
+
+  # ── Graylog ───────────────────────────────────────────────────────────────
+  graylog:
+    image: graylog/graylog:6.0
+    container_name: energyme-graylog
+    depends_on:
+      - mongodb
+      - opensearch
+    environment:
+      # Générer avec : echo -n "votre-secret-32-chars" | sha256sum
+      - GRAYLOG_PASSWORD_SECRET=${GRAYLOG_PASSWORD_SECRET:-energyme_secret_change_me_32ch}
+      # SHA2 du mot de passe root (par défaut "admin")
+      # Générer : echo -n "admin" | sha256sum
+      - GRAYLOG_ROOT_PASSWORD_SHA2=${GRAYLOG_ROOT_PASSWORD_SHA2:-8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918}
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://localhost:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://opensearch:9200
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    ports:
+      - "9000:9000"       # UI + API REST Graylog
+      - "514:5140/udp"    # Syslog UDP (hôte:514 → conteneur:5140)
+    volumes:
+      - graylog_data:/usr/share/graylog/data
+      - ./graylog_init/:/usr/share/graylog/data/contentpacks/
+    networks: [graylog]
+    restart: unless-stopped
+    entrypoint: /usr/bin/tini -- /docker-entrypoint.sh
+
+  # ── MCP Server (accès LLM aux logs via Graylog REST API) ─────────────────
+  mcp-logs:
+    build:
+      context: ./mcp_logs
+    container_name: energyme-mcp-logs
+    depends_on:
+      - graylog
+    environment:
+      - GRAYLOG_HOST=graylog
+      - GRAYLOG_PORT=9000
+      - GRAYLOG_USERNAME=${GRAYLOG_USERNAME:-admin}
+      - GRAYLOG_PASSWORD=${GRAYLOG_PASSWORD:-admin}
+    ports:
+      - "8000:8000"
+    networks: [graylog]
+    restart: unless-stopped
+
+  # ── Cloudflare Tunnel (expose MCP server publiquement) ────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: energyme-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - mcp-logs
+    networks: [graylog]
+    restart: unless-stopped
+    profiles: [tunnel]  # démarrer avec --profile tunnel uniquement si token configuré
+
+volumes:
+  mongodb_data:
+  opensearch_data:
+  graylog_data:
+
+networks:
+  graylog:
+    driver: bridge

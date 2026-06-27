@@ -6,9 +6,14 @@ from datetime import datetime
 from pyramid.view import view_config
 from pyramid.httpexceptions import HTTPBadRequest
 
+import base64
+import struct
+
+from pyramid.response import Response
+
 from .client import (
     EnergyMeClient, EnergyMeError,
-    ADE7953_CONFIG_DESC, CHANNEL_EDIT_FIELDS, ROLE_LABELS,
+    ADE7953_CONFIG_DESC, CHANNEL_EDIT_FIELDS, ROLE_LABELS, LOG_LEVELS,
 )
 
 log = logging.getLogger(__name__)
@@ -349,6 +354,7 @@ def config_view(request):
     error = None
     config_rows = []
 
+    channels = []
     try:
         raw = client.get_ade7953_config()
         for key, value in raw.items():
@@ -359,11 +365,12 @@ def config_view(request):
                 "description": desc,
                 "unit":        unit,
             })
+        channels = client.get_channels()
     except EnergyMeError as exc:
         error = str(exc)
         log.warning("Erreur config ADE7953 : %s", exc)
 
-    return {"config_rows": config_rows, "error": error, "page": "config"}
+    return {"config_rows": config_rows, "channels": channels, "role_labels": ROLE_LABELS, "error": error, "page": "config"}
 
 
 # ── Système ───────────────────────────────────────────────────────────────────
@@ -415,3 +422,162 @@ def system_view(request):
         "error":          error,
         "page":           "system",
     }
+
+
+# ── Issues ────────────────────────────────────────────────────────────────────
+
+@view_config(route_name="issues", renderer="issues.jinja2")
+def issues_view(request):
+    client = _get_client(request)
+    issues = []
+    error = None
+
+    try:
+        issues = client.get_issues()
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur issues : %s", exc)
+
+    error_count   = sum(1 for i in issues if i.get("severity") == "error"   and "unacked" in i.get("state", ""))
+    warning_count = sum(1 for i in issues if i.get("severity") == "warning" and "unacked" in i.get("state", ""))
+    info_count    = sum(1 for i in issues if i.get("severity") == "info"    and "unacked" in i.get("state", ""))
+
+    return {
+        "issues":          issues,
+        "error":           error,
+        "error_count":     error_count,
+        "warning_count":   warning_count,
+        "info_count":      info_count,
+        "issue_error_count": error_count,
+        "page":            "issues",
+    }
+
+
+@view_config(route_name="issues_ack", renderer="json")
+def acknowledge_view(request):
+    client = _get_client(request)
+    all_issues = request.POST.get("all") in ("1", "true")
+    code    = request.POST.get("code") or None
+    channel = request.POST.get("channel")
+    channel = int(channel) if channel is not None and channel != "" else None
+
+    try:
+        result = client.acknowledge_issue(code=code, channel=channel, all_issues=all_issues)
+        return {"status": "ok", "device_response": result}
+    except EnergyMeError as exc:
+        log.error("Erreur ack issue : %s", exc)
+        return {"status": "error", "message": str(exc)}
+
+
+# ── Crashes ───────────────────────────────────────────────────────────────────
+
+@view_config(route_name="crashes", renderer="crashes.jinja2")
+def crashes_view(request):
+    client = _get_client(request)
+    crash_info = None
+    error = None
+
+    try:
+        crash_info = client.get_crash_info()
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur crash info : %s", exc)
+
+    return {
+        "crash_info": crash_info,
+        "error":      error,
+        "page":       "crashes",
+    }
+
+
+@view_config(route_name="crashes_clear", renderer="json")
+def clear_crash_view(request):
+    client = _get_client(request)
+    try:
+        result = client.clear_crash()
+        return {"status": "ok", "device_response": result}
+    except EnergyMeError as exc:
+        log.error("Erreur clear crash : %s", exc)
+        return {"status": "error", "message": str(exc)}
+
+
+@view_config(route_name="crashes_dump")
+def crashes_dump_view(request):
+    client = _get_client(request)
+    offset = int(request.params.get("offset", 0))
+    size   = int(request.params.get("size",   65536))
+
+    try:
+        chunk = client.get_crash_dump(offset=offset, size=size)
+        data_b64 = chunk.get("data", "")
+        raw = base64.b64decode(data_b64) if data_b64 else b""
+        response = Response(raw, content_type="application/octet-stream")
+        response.headers["Content-Disposition"] = "attachment; filename=crash_dump.bin"
+        return response
+    except EnergyMeError as exc:
+        return Response(str(exc), status=502, content_type="text/plain")
+
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+
+@view_config(route_name="logs", renderer="logs.jinja2")
+def logs_view(request):
+    client = _get_client(request)
+    log_level = {}
+    log_content = ""
+    syslog_dest = None
+    error = None
+
+    try:
+        log_level   = client.get_log_level()
+        syslog_dest = client.get_syslog_destination()
+        log_content = client.get_log_content()
+    except EnergyMeError as exc:
+        error = str(exc)
+        log.warning("Erreur logs : %s", exc)
+
+    return {
+        "log_level":   log_level,
+        "log_content": log_content,
+        "syslog_dest": syslog_dest or "",
+        "log_levels":  LOG_LEVELS,
+        "error":       error,
+        "page":        "logs",
+    }
+
+
+@view_config(route_name="logs_update", renderer="json")
+def update_logs_view(request):
+    client = _get_client(request)
+    errors = []
+
+    print_level = request.POST.get("print_level") or None
+    save_level  = request.POST.get("save_level")  or None
+    syslog_ip   = request.POST.get("syslog_dest")
+
+    if print_level or save_level:
+        try:
+            client.update_log_level(print_level=print_level, save_level=save_level)
+        except EnergyMeError as exc:
+            errors.append(str(exc))
+
+    if syslog_ip is not None:
+        try:
+            client.set_syslog_destination(syslog_ip.strip())
+        except EnergyMeError as exc:
+            errors.append(str(exc))
+
+    if errors:
+        return {"status": "error", "message": "; ".join(errors)}
+    return {"status": "ok"}
+
+
+@view_config(route_name="logs_clear", renderer="json")
+def clear_logs_view(request):
+    client = _get_client(request)
+    try:
+        result = client.clear_logs()
+        return {"status": "ok", "device_response": result}
+    except EnergyMeError as exc:
+        log.error("Erreur clear logs : %s", exc)
+        return {"status": "error", "message": str(exc)}

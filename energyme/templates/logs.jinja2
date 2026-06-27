@@ -1,0 +1,174 @@
+{% extends "base.jinja2" %}
+{% block title %}Logs – EnergyMe Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h2 class="mb-0 fw-bold">Logs</h2>
+    <p class="text-muted mb-0">Niveaux de log, destination syslog UDP et contenu des logs</p>
+  </div>
+  <button class="btn btn-sm btn-outline-info" onclick="location.reload()">
+    <i class="bi bi-arrow-clockwise me-1"></i>Rafraîchir
+  </button>
+</div>
+
+{% if error %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-wifi-off fs-5"></i>
+  <div><strong>Dispositif injoignable</strong> — {{ error }}</div>
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+  <!-- Niveaux de log -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-3">
+        <i class="bi bi-sliders me-2 text-warning"></i>Niveaux de log
+      </div>
+      <div class="card-body">
+        <form id="form-levels">
+          <div class="mb-3">
+            <label class="form-label text-muted small">Niveau d'affichage (print)</label>
+            <select class="form-select form-select-sm" name="print_level">
+              {% for lvl in log_levels %}
+              <option value="{{ lvl }}" {% if log_level.print == lvl %}selected{% endif %}>{{ lvl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label text-muted small">Niveau de sauvegarde (save)</label>
+            <select class="form-select form-select-sm" name="save_level">
+              {% for lvl in log_levels %}
+              <option value="{{ lvl }}" {% if log_level.save == lvl %}selected{% endif %}>{{ lvl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check-lg me-1"></i>Appliquer les niveaux
+          </button>
+          <span class="ms-2 d-none text-success" id="levels-ok"><i class="bi bi-check-circle-fill"></i> Enregistré</span>
+          <span class="ms-2 d-none text-danger"  id="levels-err"></span>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Destination syslog UDP -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-3">
+        <i class="bi bi-send me-2 text-info"></i>Destination Syslog UDP
+      </div>
+      <div class="card-body">
+        <form id="form-syslog">
+          <div class="mb-3">
+            <label class="form-label text-muted small">Adresse IP du serveur syslog (port 514 fixe)</label>
+            <input type="text" class="form-control form-control-sm font-monospace"
+                   name="syslog_dest" value="{{ syslog_dest }}"
+                   placeholder="ex: 192.168.1.100 (vide = désactivé)"
+                   pattern="^(\d{1,3}\.){3}\d{1,3}$|^$">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check-lg me-1"></i>Appliquer
+          </button>
+          <span class="ms-2 d-none text-success" id="syslog-ok"><i class="bi bi-check-circle-fill"></i> Enregistré</span>
+          <span class="ms-2 d-none text-danger"  id="syslog-err"></span>
+        </form>
+        <hr style="border-color:#2d3148" class="my-3">
+        <div class="text-muted small">
+          <i class="bi bi-info-circle me-1"></i>
+          Pour recevoir les logs, démarrez Graylog avec un input Syslog UDP sur le port 514.
+          Commande rapide :
+          <code class="d-block mt-1 text-success" style="font-size:.78rem">
+            docker compose -f docker-compose.syslog.yml up -d
+          </code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Visualiseur de logs -->
+<div class="card">
+  <div class="card-header py-3 d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-terminal me-2 text-secondary"></i>Contenu des logs stockés</span>
+    <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#clearLogsModal">
+      <i class="bi bi-trash me-1"></i>Effacer
+    </button>
+  </div>
+  <div class="card-body p-0">
+    {% if log_content %}
+    <pre class="mb-0 p-3" style="max-height:500px;overflow-y:auto;background:#0f1117;font-size:.78rem;color:#94a3b8;border-radius:0 0 12px 12px">{{ log_content }}</pre>
+    {% else %}
+    <p class="text-muted p-3 mb-0">Aucun log stocké.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modale confirmation effacement -->
+<div class="modal fade" id="clearLogsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:#1a1d2e;border-color:#2d3148">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-trash me-2 text-danger"></i>Effacer les logs</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">Effacer définitivement tous les logs stockés sur le dispositif ?</div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-clear-logs">
+          <i class="bi bi-trash me-1"></i>Effacer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function postForm(url, formEl, okEl, errEl) {
+  const data = new URLSearchParams(new FormData(formEl));
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: data,
+    });
+    const json = await resp.json();
+    if (json.status === 'ok') {
+      document.getElementById(okEl).classList.remove('d-none');
+      document.getElementById(errEl).classList.add('d-none');
+      setTimeout(() => document.getElementById(okEl).classList.add('d-none'), 2500);
+    } else {
+      throw new Error(json.message || 'Erreur');
+    }
+  } catch(e) {
+    const el = document.getElementById(errEl);
+    el.textContent = e.message;
+    el.classList.remove('d-none');
+    document.getElementById(okEl).classList.add('d-none');
+  }
+}
+
+document.getElementById('form-levels').addEventListener('submit', e => {
+  e.preventDefault();
+  postForm('/logs/update', e.target, 'levels-ok', 'levels-err');
+});
+
+document.getElementById('form-syslog').addEventListener('submit', e => {
+  e.preventDefault();
+  postForm('/logs/update', e.target, 'syslog-ok', 'syslog-err');
+});
+
+document.getElementById('btn-clear-logs').addEventListener('click', async () => {
+  try {
+    const resp = await fetch('/logs/clear', {method: 'POST'});
+    const json = await resp.json();
+    if (json.status === 'ok') location.reload();
+    else alert('Erreur : ' + json.message);
+  } catch(e) { alert('Erreur réseau'); }
+});
+</script>
+{% endblock %}

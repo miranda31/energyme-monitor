@@ -1,0 +1,171 @@
+{% extends "base.jinja2" %}
+{% block title %}Crashes – EnergyMe Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h2 class="mb-0 fw-bold">Informations de Crash</h2>
+    <p class="text-muted mb-0">Diagnostic ESP32 – dernier redémarrage anormal</p>
+  </div>
+  {% if crash_info %}
+  <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#clearModal">
+    <i class="bi bi-trash me-1"></i>Effacer le core dump
+  </button>
+  {% endif %}
+</div>
+
+{% if error %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-wifi-off fs-5"></i>
+  <div><strong>Dispositif injoignable</strong> — {{ error }}</div>
+</div>
+{% endif %}
+
+{% if crash_info %}
+
+{% set consecutive = crash_info.consecutiveCrashCount | default(0) %}
+{% if consecutive > 3 %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-exclamation-octagon-fill fs-4"></i>
+  <div><strong>Attention :</strong> {{ consecutive }} crashs consécutifs détectés — vérifier l'alimentation et la stabilité du firmware.</div>
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-3">
+        <i class="bi bi-info-circle me-2 text-warning"></i>Informations générales
+      </div>
+      <div class="card-body">
+        {% macro info_row(label, value, color='') %}
+        <div class="info-row d-flex justify-content-between">
+          <span class="info-key">{{ label }}</span>
+          <span class="info-val {% if color %}text-{{ color }}{% endif %}">{{ value if value is not none else '—' }}</span>
+        </div>
+        {% endmacro %}
+        {{ info_row("Raison du reset",     crash_info.resetReason | default('—'),            'warning') }}
+        {{ info_row("Nb resets",           crash_info.resetCount  | default('—')) }}
+        {{ info_row("Nb crashs",           crash_info.crashCount  | default('—'),            'danger' if crash_info.crashCount | default(0) > 0) }}
+        {{ info_row("Crashs consécutifs",  crash_info.consecutiveCrashCount | default('—'), 'danger' if consecutive > 3 else '') }}
+        {{ info_row("Tâche fautive",       crash_info.faultingTask | default('—'),           'danger') }}
+        {{ info_row("Adresse PC",          ('0x%08X' % crash_info.pc) if crash_info.pc is defined else '—') }}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-3">
+        <i class="bi bi-download me-2 text-info"></i>Core Dump
+      </div>
+      <div class="card-body d-flex flex-column justify-content-between">
+        {% if crash_info.coreDumpSize | default(0) > 0 %}
+        <div>
+          <div class="info-row d-flex justify-content-between">
+            <span class="info-key">Taille</span>
+            <span class="info-val">{{ crash_info.coreDumpSize | default(0) | int }} octets</span>
+          </div>
+          <div class="info-row d-flex justify-content-between">
+            <span class="info-key">Présence</span>
+            <span class="info-val text-success"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>
+          </div>
+        </div>
+        <a href="/crashes/dump" class="btn btn-outline-info btn-sm mt-3">
+          <i class="bi bi-download me-1"></i>Télécharger crash_dump.bin
+        </a>
+        {% else %}
+        <div class="text-muted text-center py-3">
+          <i class="bi bi-file-earmark-x fs-3 d-block mb-2"></i>
+          Aucun core dump disponible
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if crash_info.backtrace %}
+{% set bt = crash_info.backtrace %}
+<div class="card mb-4">
+  <div class="card-header py-3 d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-list-ol me-2 text-secondary"></i>Backtrace
+      (profondeur : {{ bt.depth | default(bt.addresses | length) }})</span>
+    <button class="btn btn-sm btn-outline-secondary" id="btn-copy-cmd">
+      <i class="bi bi-clipboard me-1"></i>Copier addr2line
+    </button>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive mb-3">
+      <table class="table table-sm font-monospace mb-0">
+        <thead><tr><th>#</th><th>Adresse</th></tr></thead>
+        <tbody>
+          {% for addr in bt.addresses | default([]) %}
+          <tr>
+            <td class="text-muted">{{ loop.index }}</td>
+            <td>0x{{ '%08X' % addr }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-dark rounded p-3">
+      <p class="text-muted small mb-1">Commande addr2line :</p>
+      <code id="addr2line-cmd" class="text-success small">
+        xtensa-esp32-elf-addr2line -pfiaC -e firmware.elf
+        {% for addr in bt.addresses | default([]) %} 0x{{ '%08X' % addr }}{% endfor %}
+      </code>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% elif not error %}
+<div class="alert alert-success d-flex align-items-center gap-2">
+  <i class="bi bi-check-circle-fill fs-5"></i>
+  <div>Aucune information de crash disponible.</div>
+</div>
+{% endif %}
+
+<!-- Modale de confirmation -->
+<div class="modal fade" id="clearModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:#1a1d2e;border-color:#2d3148">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-trash me-2 text-danger"></i>Effacer le core dump</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        Cette action efface définitivement le core dump et les informations de crash stockées sur le dispositif.
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-clear-crash">
+          <i class="bi bi-trash me-1"></i>Effacer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('btn-clear-crash')?.addEventListener('click', async () => {
+  try {
+    const resp = await fetch('/crashes/clear', {method: 'POST'});
+    const json = await resp.json();
+    if (json.status === 'ok') location.reload();
+    else alert('Erreur : ' + json.message);
+  } catch(e) { alert('Erreur réseau'); }
+});
+
+document.getElementById('btn-copy-cmd')?.addEventListener('click', () => {
+  const cmd = document.getElementById('addr2line-cmd').textContent.replace(/\s+/g, ' ').trim();
+  navigator.clipboard.writeText(cmd);
+  const btn = document.getElementById('btn-copy-cmd');
+  btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copié !';
+  setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copier addr2line', 2000);
+});
+</script>
+{% endblock %}

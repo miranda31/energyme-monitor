@@ -19,10 +19,28 @@
 </div>
 {% endif %}
 
+<!-- Onglets -->
+<ul class="nav nav-tabs mb-3" id="configTabs">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-registers">
+      <i class="bi bi-table me-1"></i>Calibration globale
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-channels">
+      <i class="bi bi-list-ul me-1"></i>Canaux
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+<!-- Onglet Calibration globale -->
+<div class="tab-pane fade show active" id="tab-registers">
 {% if config_rows %}
 <div class="card">
   <div class="card-header py-3">
-    <i class="bi bi-table me-2 text-info"></i>Registres de calibration
+    <i class="bi bi-table me-2 text-info"></i>Registres de calibration ADE7953
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -57,6 +75,74 @@
 {% elif not error %}
 <div class="alert alert-secondary">Aucune donnée de configuration reçue.</div>
 {% endif %}
+</div>
+
+<!-- Onglet Canaux -->
+<div class="tab-pane fade" id="tab-channels">
+{% if channels %}
+<div class="card p-0">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:45px">#</th>
+          <th>Nom</th>
+          <th>Rôle</th>
+          <th class="text-end">Calibre TC (A)</th>
+          <th class="text-end">Sortie TC (V)</th>
+          <th class="text-end">Correction</th>
+          <th class="text-center" style="width:80px">Sauv.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ch in channels %}
+        {% set ct = ch.ctSpecification or {} %}
+        <tr class="ch-config-row" data-channel="{{ ch.index }}">
+          <td class="fw-bold text-muted px-3">{{ ch.index }}</td>
+          <td>
+            <div class="fw-semibold" style="font-size:.9rem">{{ ch.label or ('Canal ' ~ ch.index) }}</div>
+            {% if ch.groupLabel %}<div class="text-muted" style="font-size:.72rem">{{ ch.groupLabel }}</div>{% endif %}
+          </td>
+          <td>
+            <span class="badge bg-{{ ch.role_color | default('secondary') }} bg-opacity-25 text-{{ ch.role_color | default('secondary') }}"
+                  style="border:1px solid;font-size:.7rem">
+              {{ role_labels.get(ch.role, ch.role or '—') }}
+            </span>
+          </td>
+          <td class="text-end">
+            <input type="number" class="form-control form-control-sm text-end font-monospace ct-input"
+                   name="ct_rating" value="{{ ct.currentRating or 50 }}"
+                   min="1" max="300" step="0.1" style="width:90px;margin-left:auto">
+          </td>
+          <td class="text-end">
+            <input type="number" class="form-control form-control-sm text-end font-monospace ct-input"
+                   name="ct_voltage" value="{{ ct.voltageOutput or 1.0 }}"
+                   min="0.1" max="1.0" step="0.001" style="width:90px;margin-left:auto">
+          </td>
+          <td class="text-end">
+            <input type="number" class="form-control form-control-sm text-end font-monospace ct-input"
+                   name="ct_scaling" value="{{ ct.scalingFraction or 0.0 }}"
+                   min="-0.5" max="0.5" step="0.01" style="width:90px;margin-left:auto">
+          </td>
+          <td class="text-center">
+            <button class="btn btn-primary btn-sm ct-save-btn px-2 py-0">
+              <i class="bi bi-check-lg"></i>
+            </button>
+            <span class="ct-ok text-success d-none ms-1"><i class="bi bi-check-circle-fill"></i></span>
+            <span class="ct-err text-danger d-none ms-1" title=""></span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% elif not error %}
+<div class="alert alert-secondary">Aucun canal retourné par le dispositif.</div>
+{% endif %}
+</div>
+
+</div><!-- /tab-content -->
 
 <div class="row g-4 mt-1">
   <div class="col-md-6">
@@ -115,4 +201,36 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.ch-config-row').forEach(row => {
+  row.querySelector('.ct-save-btn').addEventListener('click', async () => {
+    const ch   = row.dataset.channel;
+    const okEl = row.querySelector('.ct-ok');
+    const errEl= row.querySelector('.ct-err');
+    const data = new URLSearchParams();
+    row.querySelectorAll('.ct-input').forEach(inp => data.append(inp.name, inp.value));
+    try {
+      const resp = await fetch(`/channel/${ch}/update`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: data,
+      });
+      const json = await resp.json();
+      if (json.status === 'ok') {
+        okEl.classList.remove('d-none');
+        errEl.classList.add('d-none');
+        setTimeout(() => okEl.classList.add('d-none'), 2500);
+      } else throw new Error(json.message || 'Erreur');
+    } catch(e) {
+      errEl.innerHTML = `<i class="bi bi-x-circle-fill"></i>`;
+      errEl.title = e.message;
+      errEl.classList.remove('d-none');
+      okEl.classList.add('d-none');
+    }
+  });
+});
+</script>
 {% endblock %}

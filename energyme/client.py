@@ -81,6 +81,12 @@ CHANNEL_EDIT_FIELDS = [
 ]
 
 
+LOG_LEVELS = ["VERBOSE", "DEBUG", "INFO", "WARNING", "ERROR", "FATAL"]
+
+ISSUE_SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
+ISSUE_STATE_ORDER    = {"active_unacked": 0, "active_acked": 1, "cleared_unacked": 2}
+
+
 class EnergyMeError(Exception):
     """Erreur de communication avec le dispositif EnergyMe."""
 
@@ -103,6 +109,51 @@ class EnergyMeClient:
             r = self._session.get(url, auth=self._auth, params=params, timeout=self._timeout)
             r.raise_for_status()
             return r.json()
+        except Timeout:
+            raise EnergyMeError(f"Délai dépassé pour {url}")
+        except ConnectionError:
+            raise EnergyMeError(f"Impossible de joindre le dispositif ({self.base_url})")
+        except RequestException as exc:
+            raise EnergyMeError(f"Erreur HTTP {exc}")
+
+    def _post(self, path: str, body: dict | None = None) -> Any:
+        url = f"{self.base_url}{path}"
+        try:
+            r = self._session.post(
+                url, auth=self._auth, json=body or {}, timeout=self._timeout,
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            return r.json() if r.content else {"success": True}
+        except Timeout:
+            raise EnergyMeError(f"Délai dépassé pour {url}")
+        except ConnectionError:
+            raise EnergyMeError(f"Impossible de joindre le dispositif ({self.base_url})")
+        except RequestException as exc:
+            raise EnergyMeError(f"Erreur HTTP {exc}")
+
+    def _put(self, path: str, body: dict) -> Any:
+        url = f"{self.base_url}{path}"
+        try:
+            r = self._session.put(
+                url, auth=self._auth, json=body, timeout=self._timeout,
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+            return r.json() if r.content else {"success": True}
+        except Timeout:
+            raise EnergyMeError(f"Délai dépassé pour {url}")
+        except ConnectionError:
+            raise EnergyMeError(f"Impossible de joindre le dispositif ({self.base_url})")
+        except RequestException as exc:
+            raise EnergyMeError(f"Erreur HTTP {exc}")
+
+    def _get_text(self, path: str) -> str:
+        url = f"{self.base_url}{path}"
+        try:
+            r = self._session.get(url, auth=self._auth, timeout=self._timeout)
+            r.raise_for_status()
+            return r.text
         except Timeout:
             raise EnergyMeError(f"Délai dépassé pour {url}")
         except ConnectionError:
@@ -203,6 +254,85 @@ class EnergyMeClient:
     def get_firmware_update_info(self) -> dict:
         """Retourne les informations de mise à jour firmware."""
         return self._get("/api/v1/firmware/update-info")
+
+    # ── Issues ────────────────────────────────────────────────────────────────
+
+    def get_issues(self) -> list[dict]:
+        """Retourne les issues triées par sévérité puis par état."""
+        data = self._get("/api/v1/system/issues")
+        issues = data.get("issues", data) if isinstance(data, dict) else data
+        return sorted(
+            issues,
+            key=lambda i: (
+                ISSUE_SEVERITY_ORDER.get(i.get("severity", "info"), 9),
+                ISSUE_STATE_ORDER.get(i.get("state", "active_unacked"), 9),
+            ),
+        )
+
+    def acknowledge_issue(self, code: str | None = None,
+                          channel: int | None = None,
+                          all_issues: bool = False) -> dict:
+        """Acquitte une issue spécifique ou toutes les issues."""
+        if all_issues:
+            body: dict = {"all": True}
+        else:
+            body = {"code": code}
+            if channel is not None:
+                body["channel"] = channel
+        return self._post("/api/v1/system/issues/ack", body)
+
+    # ── Crash ─────────────────────────────────────────────────────────────────
+
+    def get_crash_info(self) -> dict:
+        """Retourne les informations du dernier crash (reset reason, backtrace…)."""
+        return self._get("/api/v1/crash/info")
+
+    def get_crash_dump(self, offset: int = 0, size: int = 4096) -> dict:
+        """Retourne un chunk du core dump en base64."""
+        return self._get("/api/v1/crash/dump", params={"offset": offset, "size": size})
+
+    def clear_crash(self) -> dict:
+        """Efface le core dump stocké."""
+        return self._post("/api/v1/crash/clear")
+
+    # ── Logs ──────────────────────────────────────────────────────────────────
+
+    def get_log_level(self) -> dict:
+        """Retourne les niveaux de log courants {print, save}."""
+        return self._get("/api/v1/logs/level")
+
+    def update_log_level(self, print_level: str | None = None,
+                         save_level: str | None = None) -> dict:
+        """Met à jour partiellement les niveaux de log via PATCH."""
+        body = {}
+        if print_level:
+            body["print"] = print_level
+        if save_level:
+            body["save"] = save_level
+        return self._patch("/api/v1/logs/level", body)
+
+    def get_log_content(self) -> str:
+        """Retourne le contenu des logs stockés (texte brut)."""
+        return self._get_text("/api/v1/logs")
+
+    def clear_logs(self) -> dict:
+        """Efface les logs stockés sur le dispositif."""
+        return self._post("/api/v1/logs/clear")
+
+    def get_syslog_destination(self) -> str | None:
+        """Retourne l'IP du serveur syslog UDP (None si non configuré)."""
+        try:
+            data = self._get("/api/v1/logs-udp-destination")
+            dest = data.get("destination", "")
+            return dest if dest else None
+        except EnergyMeError:
+            return None
+
+    def set_syslog_destination(self, ip: str) -> dict:
+        """Définit l'IP du serveur syslog UDP (chaîne vide pour désactiver)."""
+        return self._put("/api/v1/logs-udp-destination", {"destination": ip})
+
+    # ── Fréquence ─────────────────────────────────────────────────────────────
 
     def get_grid_frequency(self) -> float | None:
         """Retourne la fréquence réseau en Hz."""

@@ -6,21 +6,35 @@
   <div>
     <h2 class="mb-0 fw-bold">Métriques en temps réel</h2>
     {% if frequency %}
-    <p class="text-muted mb-0 small">
+    <p class="mb-0 small" style="color:#94a3b8">
       Fréquence réseau : <strong class="text-info">{{ "%.3f"|format(frequency) }} Hz</strong>
-      &nbsp;·&nbsp; Auto-refresh <span id="countdown">10</span>s
+      &nbsp;·&nbsp; Auto-refresh <span id="countdown" style="color:#e2e8f0;font-weight:600">10</span>s
     </p>
     {% else %}
-    <p class="text-muted mb-0 small">Auto-refresh <span id="countdown">10</span>s</p>
+    <p class="mb-0 small" style="color:#94a3b8">Auto-refresh <span id="countdown" style="color:#e2e8f0;font-weight:600">10</span>s</p>
     {% endif %}
   </div>
-  <div class="d-flex align-items-center gap-2">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
     <button class="btn btn-sm btn-outline-secondary" id="btn-toggle-params">
       <i class="bi bi-sliders me-1"></i>Paramètres
     </button>
+    <!-- Toggle auto-reset -->
+    <div class="d-flex align-items-center gap-1 border border-secondary rounded px-2 py-1"
+         style="background:#0f1117" title="Active/désactive le reset automatique des canaux stables">
+      <span class="small" style="color:#94a3b8;white-space:nowrap">Auto-reset</span>
+      <div class="form-check form-switch mb-0 ms-1">
+        <input class="form-check-input" type="checkbox" id="toggle-auto-reset"
+               role="switch" style="cursor:pointer;width:2.2em;height:1.15em">
+      </div>
+    </div>
+    <!-- Bouton effacer historique -->
+    <button class="btn btn-sm btn-outline-danger" id="btn-clear-history"
+            title="Effacer tout l'historique time series">
+      <i class="bi bi-trash me-1"></i>Historique
+    </button>
     <!-- Sélecteur de refresh -->
     <div class="input-group input-group-sm" style="width:auto">
-      <span class="input-group-text bg-transparent border-secondary text-muted">
+      <span class="input-group-text bg-transparent border-secondary" style="color:#94a3b8">
         <i class="bi bi-arrow-clockwise"></i>
       </span>
       <select id="refresh-select" class="form-select form-select-sm border-secondary"
@@ -47,6 +61,25 @@
 {% endif %}
 
 {% if channels %}
+{% set tw_h = (trend_minutes | default(15)) / 60.0 %}
+{% set ns_ut = namespace(g_net=0.0, other_net=0.0, valid=false) %}
+{% for ch in channels %}
+  {% set tr_ch = trends.get(ch.index) if trends else none %}
+  {% if tr_ch and ch.metrics %}
+    {% if ch.role == 'grid' %}
+      {% set ns_ut.g_net = (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
+      {% set ns_ut.valid = true %}
+    {% elif tr_ch.e_in_delta is not none or tr_ch.e_out_delta is not none %}
+      {# Pour inverter/pv : le CT mesure la production en e_in (courant vers la maison).
+         On inverse le signe pour que la production AUGMENTE l'énergie disponible. #}
+      {% if ch.role in ['pv', 'inverter'] %}
+        {% set ns_ut.other_net = ns_ut.other_net - (tr_ch.e_in_delta or 0) + (tr_ch.e_out_delta or 0) %}
+      {% else %}
+        {% set ns_ut.other_net = ns_ut.other_net + (tr_ch.e_in_delta or 0) - (tr_ch.e_out_delta or 0) %}
+      {% endif %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
 <!-- Résumé global par rôle -->
 <div class="row g-3 mb-4" id="summary-cards">
   {% set grid_ch    = channels | selectattr('role', 'equalto', 'grid')     | selectattr('metrics') | list %}
@@ -54,42 +87,63 @@
   {% set load_ch    = channels | selectattr('role', 'equalto', 'load')     | selectattr('metrics') | list %}
 
   {% macro sum_power(chs) %}
-    {{ (chs | sum(attribute='metrics.activePower') if chs else 0) | round(0) | int }}
+    {% set ns = namespace(total=0) %}
+    {% for c in chs %}{% if c.metrics.activePower is not none %}{% set ns.total = ns.total + c.metrics.activePower %}{% endif %}{% endfor %}
+    {{ ns.total | round(0) | int }}
   {% endmacro %}
 
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-lightning-charge me-1"></i>Réseau</div>
       {% if grid_ch %}
       {% set gp = grid_ch[0].metrics.activePower %}
-      <div class="metric-value {% if gp < 0 %}text-success{% else %}text-warning{% endif %}">
-        {{ gp | round(0) | int }} <small class="fs-6">W</small>
+      <div class="metric-value {% if gp is not none and gp < 0 %}text-success{% else %}text-warning{% endif %}">
+        {% if gp is not none %}{{ gp | round(0) | int }}{% else %}—{% endif %} <small class="fs-6">W</small>
       </div>
-      <div class="small text-muted">{% if gp < 0 %}Injection{% else %}Soutirage{% endif %}</div>
+      <div class="small text-muted">{% if gp is not none and gp < 0 %}Injection{% else %}Soutirage{% endif %}</div>
       {% else %}
       <div class="metric-value text-muted">—</div>
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-sun me-1"></i>Production</div>
       <div class="metric-value text-warning">{{ sum_power(pv_ch) }} <small class="fs-6">W</small></div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label"><i class="bi bi-plug me-1"></i>Consommation</div>
       <div class="metric-value text-info">{{ sum_power(load_ch) }} <small class="fs-6">W</small></div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card text-center py-3">
       <div class="metric-label">Canaux actifs</div>
       <div class="metric-value">
         {{ channels | selectattr('active') | list | length }}
         <small class="fs-6 text-muted">/ {{ channels | length }}</small>
       </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg">
+    <div class="card text-center py-3">
+      <div class="metric-label">Non suivi <span style="color:#475569;font-size:.7rem">(Wh)</span></div>
+      {% if ns_ut.valid and tw_h > 0 %}
+        {% set ut_wh = ns_ut.g_net - ns_ut.other_net %}
+        {% set ut_w  = (ut_wh / tw_h) | round(0) | int %}
+        {% if ut_w < 100 %}{% set ut_color = 'success' %}
+        {% elif ut_w < 500 %}{% set ut_color = 'warning' %}
+        {% else %}{% set ut_color = 'danger' %}{% endif %}
+        <div class="metric-value text-{{ ut_color }}">
+          {{ ut_w }} <small class="fs-6">W</small>
+        </div>
+        <div class="small text-muted">moy. {{ trend_minutes | default(15) }} min</div>
+      {% else %}
+        <div class="metric-value text-muted">—</div>
+        <div class="small text-muted">historique insuffisant</div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -111,6 +165,9 @@
           <th class="text-end" style="min-width:55px">PF</th>
           <th class="text-end col-energy" style="min-width:110px">↓ Import (Wh)</th>
           <th class="text-end col-energy" style="min-width:110px">↑ Export (Wh)</th>
+          <th class="text-center" style="min-width:75px;font-size:.75rem" title="Dernier off/on automatique">Off/On</th>
+          <th class="text-center" style="min-width:70px;font-size:.75rem"
+              title="Score qualité signal (0=sain, 100=problématique). Indicateurs : mesures figées, flips de polarité, instabilité CV, intervalles de lecture croissants. Si score ≥ 25, impact estimé en W affiché sous le badge.">LD</th>
 
           <!-- Colonnes paramètres (masquées par défaut) -->
           <th class="col-param" style="min-width:55px">Actif</th>
@@ -137,9 +194,16 @@
             <div class="d-flex align-items-center gap-2">
               <i class="bi {{ ch.role_icon }} text-{{ ch.role_color }}"></i>
               <div>
-                <div class="fw-semibold" style="font-size:.9rem">{{ ch.label or ("Canal " ~ ch.index) }}</div>
+                <div class="fw-semibold" style="font-size:.9rem">
+                  {{ ch.label or ("Canal " ~ ch.index) }}
+                  {% if ch.partial_metrics %}
+                  <i class="bi bi-exclamation-triangle-fill text-warning ms-1"
+                     style="font-size:.75rem"
+                     title="Réponse API incomplète : certaines mesures manquantes"></i>
+                  {% endif %}
+                </div>
                 {% if ch.groupLabel %}
-                <div class="text-muted" style="font-size:.72rem">{{ ch.groupLabel }}</div>
+                <div style="color:#94a3b8;font-size:.72rem">{{ ch.groupLabel }}</div>
                 {% endif %}
               </div>
             </div>
@@ -165,21 +229,87 @@
             {{ cell(m.current, '', '%.4f') }}
             {# Couleur selon le sens pour grid #}
             {% if ch.role == 'grid' %}
-              {% set pw_color = 'success' if m.activePower < 0 else 'warning' %}
+              {% set pw_color = 'success' if (m.activePower is not none and m.activePower < 0) else 'warning' %}
             {% elif ch.role in ('pv', 'inverter') %}
               {% set pw_color = 'warning' %}
             {% else %}
               {% set pw_color = 'info' %}
             {% endif %}
-            {{ cell(m.activePower,   pw_color) }}
+            {# Récupère la tendance du canal (peut être None si pas encore de données) #}
+            {% set tr = trends.get(ch.index) if trends else none %}
+            {# ── Puissance active + indicateur de tendance ── #}
+            <td class="text-end font-monospace text-{{ pw_color }}">
+              {% if m.activePower is not none %}{{ "%.2f"|format(m.activePower) }}{% else %}<span class="text-muted">—</span>{% endif %}
+              {% if tr and tr.direction != 'unknown' %}
+              <div class="trend-hint trend-{{ tr.direction }}">
+                {% if tr.direction == 'up' %}<i class="bi bi-arrow-up-short"></i>+{{ tr.slope_per_min }} W/min
+                {% elif tr.direction == 'down' %}<i class="bi bi-arrow-down-short"></i>{{ tr.slope_per_min }} W/min
+                {% else %}<i class="bi bi-dash"></i>stable
+                {% endif %}
+                {% if tr.direction_since_min is not none %}
+                  {% set dsm = tr.direction_since_min %}
+                  • <span style="color:#64748b">{% if dsm < 60 %}{{ dsm }} min{% else %}{{ dsm // 60 }}h{{ "%02d"|format(dsm % 60) }}{% endif %}</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </td>
             {{ cell(m.reactivePower, 'secondary', '%.2f') }}
             {{ cell(m.apparentPower) }}
             {{ cell(m.powerFactor,   '', '%.4f') }}
-            {{ cell(m.activeEnergyImported,  'info',    '%.3f') }}
-            {{ cell(m.activeEnergyExported,  'success', '%.3f') }}
+            {# ── Énergie importée + delta sur fenêtre ── #}
+            <td class="text-end font-monospace text-info">
+              {% if m.activeEnergyImported is not none %}{{ "%.3f"|format(m.activeEnergyImported) }}
+              {% if tr and tr.e_in_delta is not none and tr.e_in_delta != 0 %}
+              <div class="trend-hint" style="color:#94a3b8">Δ {{ "%+.3f"|format(tr.e_in_delta) }} Wh</div>
+              {% endif %}
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            {# ── Énergie exportée + delta sur fenêtre ── #}
+            <td class="text-end font-monospace text-success">
+              {% if m.activeEnergyExported is not none %}{{ "%.3f"|format(m.activeEnergyExported) }}
+              {% if tr and tr.e_out_delta is not none and tr.e_out_delta != 0 %}
+              <div class="trend-hint" style="color:#94a3b8">Δ {{ "%+.3f"|format(tr.e_out_delta) }} Wh</div>
+              {% endif %}
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
           {% else %}
             {% for _ in range(8) %}<td class="text-muted text-end">—</td>{% endfor %}
           {% endif %}
+
+          {# Colonne Off/On : affichée pour tous les canaux #}
+          {% set reset_str = last_resets.get(ch.index) %}
+          <td class="text-center font-monospace" style="font-size:.72rem;color:{% if reset_str %}#fbbf24{% else %}#475569{% endif %}">
+            {{ reset_str or '—' }}
+          </td>
+
+          {# Colonne qualité signal #}
+          {% set ld = load_discard.get(ch.index) if load_discard else none %}
+          <td class="text-center">
+            {% if ld and ld.points >= 3 %}
+              {% set sc = ld.score %}
+              {% if sc < 25 %}{% set ld_color = 'success' %}
+              {% elif sc < 50 %}{% set ld_color = 'warning' %}
+              {% else %}{% set ld_color = 'danger' %}{% endif %}
+              <span class="badge bg-{{ ld_color }} bg-opacity-25 text-{{ ld_color }}"
+                    style="font-size:.7rem;border:1px solid;cursor:default"
+                    title="Score signal {{ sc }}/100&#10;Figé : {{ '%.0f'|format((ld.frozen_ratio or 0)*100) }}%&#10;Flips polarité : {{ ld.polarity_flips }}&#10;CV instabilité : {{ '%.2f'|format(ld.instability_cv or 0) }}&#10;Δ intervalles (s/tick) : {{ ld.wdrr_delta_trend or '—' }}">
+                {{ sc }}
+              </span>
+              {% if sc >= 25 %}
+                {% set ld_tr = trends.get(ch.index) if trends else none %}
+                {% if ld_tr and tw_h > 0 %}
+                  {% set ld_e_net = (ld_tr.e_in_delta or 0) - (ld_tr.e_out_delta or 0) %}
+                  {% set ld_avg_w = (ld_e_net / tw_h) | abs %}
+                  {% if ld_avg_w > 5 %}
+                    {% set ld_impact = (ld_avg_w * sc / 100) | round(0) | int %}
+                    <div style="font-size:.65rem;color:#94a3b8;margin-top:1px">~{{ ld_impact }} W</div>
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% else %}
+              <span style="color:#475569;font-size:.75rem">—</span>
+            {% endif %}
+          </td>
 
           <!-- Paramètres éditables -->
           <td class="col-param text-center">
@@ -301,6 +431,48 @@ document.querySelectorAll('.channel-row').forEach(row => {
   });
 });
 
+// ── Toggle auto-reset ────────────────────────────────────────────────────────
+const autoResetToggle = document.getElementById('toggle-auto-reset');
+
+async function loadAutoResetState() {
+  try {
+    const r = await fetch('/api/auto-reset');
+    const j = await r.json();
+    autoResetToggle.checked = j.enabled !== false;
+  } catch { autoResetToggle.checked = true; }
+}
+
+autoResetToggle.addEventListener('change', async () => {
+  try {
+    await fetch('/api/auto-reset', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: autoResetToggle.checked}),
+    });
+  } catch {
+    autoResetToggle.checked = !autoResetToggle.checked; // rollback visuel
+  }
+});
+
+loadAutoResetState();
+
+// ── Effacement historique ─────────────────────────────────────────────────────
+document.getElementById('btn-clear-history').addEventListener('click', async () => {
+  if (!confirm('Effacer tout l\'historique time series ?\nLes données de tendance et les resets seront supprimés.')) return;
+  try {
+    const r = await fetch('/api/history/clear', {method: 'POST'});
+    const j = await r.json();
+    if (j.status === 'ok') {
+      alert(`Historique effacé (${j.deleted} enregistrements supprimés).`);
+      location.reload();
+    } else {
+      alert('Erreur : ' + (j.error || 'inconnue'));
+    }
+  } catch(e) {
+    alert('Erreur réseau : ' + e.message);
+  }
+});
+
 // ── Refresh configurable ─────────────────────────────────────────────────────
 const REFRESH_KEY = 'energyme_refresh_interval';
 const refreshSelect = document.getElementById('refresh-select');
@@ -319,7 +491,11 @@ function startRefresh(seconds) {
   refreshTimer = setInterval(() => {
     n--;
     if (countEl) countEl.textContent = n;
-    if (n <= 0) location.reload();
+    if (n <= 0) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+      location.reload();
+    }
   }, 1000);
 }
 

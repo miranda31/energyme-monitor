@@ -212,6 +212,12 @@ class EnergyMeClient:
             ch["role_label"] = ROLE_LABELS.get(ch.get("role", "load"), ch.get("role", "—"))
             ch["role_color"] = ROLE_COLORS.get(ch.get("role", "load"), "secondary")
             ch["role_icon"]  = ROLE_ICONS.get(ch.get("role", "load"), "bi-plug")
+            m = ch["metrics"]
+            ch["partial_metrics"] = (
+                bool(ch.get("active")) and
+                m is not None and
+                any(m.get(k) is None for k in ("activePower", "voltage", "current"))
+            )
             result.append(ch)
         return result
 

@@ -29,11 +29,14 @@ def _load_app_config() -> dict:
         return {}
 
     return {
-        "energyme.host":          cfg.get(section, "host",          fallback="energyme.local"),
-        "energyme.username":      cfg.get(section, "username",      fallback="admin"),
-        "energyme.password":      cfg.get(section, "password",      fallback="energyme"),
-        "energyme.timeout":       cfg.get(section, "timeout",       fallback="5"),
-        "energyme.poll_delay_ms": cfg.get(section, "poll_delay_ms", fallback="200"),
+        "energyme.host":               cfg.get(section, "host",               fallback="energyme.local"),
+        "energyme.username":           cfg.get(section, "username",           fallback="admin"),
+        "energyme.password":           cfg.get(section, "password",           fallback="energyme"),
+        "energyme.timeout":            cfg.get(section, "timeout",            fallback="5"),
+        "energyme.poll_delay_ms":      cfg.get(section, "poll_delay_ms",      fallback="200"),
+        "energyme.ts_db_path":         cfg.get(section, "ts_db_path",         fallback="energyme_ts.db"),
+        "energyme.collector_interval": cfg.get(section, "collector_interval", fallback="30"),
+        "energyme.ts_retention_days":  cfg.get(section, "ts_retention_days",  fallback="7"),
     }
 
 
@@ -58,6 +61,43 @@ def main(global_config, **settings):
     config.add_route("logs",           "/logs")
     config.add_route("logs_update",    "/logs/update",   request_method="POST")
     config.add_route("logs_clear",     "/logs/clear",    request_method="POST")
+    config.add_route("trends_api",        "/api/trends")
+    config.add_route("history_clear_api", "/api/history/clear")   # avant history_api
+    config.add_route("history_api",       "/api/history/{channel}")
+    config.add_route("auto_reset_api",    "/api/auto-reset")
+    config.add_route("load_discard_api",  "/api/load-discard")
+    config.add_route("summary_api",       "/api/summary")
+    config.add_route("graphs",            "/graphs")
+
+    _init_timeseries(config, settings)
 
     config.scan(".views")
     return config.make_wsgi_app()
+
+
+def _init_timeseries(config, settings: dict) -> None:
+    """Initialise le store time series et démarre le collecteur en arrière-plan."""
+    try:
+        from .timeseries import TimeSeriesStore
+        from .collector import BackgroundCollector
+        from .client import EnergyMeClient
+
+        db_path = settings.get("energyme.ts_db_path", "energyme_ts.db")
+        ts_store = TimeSeriesStore(db_path=db_path)
+        config.registry.ts_store = ts_store
+
+        collector_client = EnergyMeClient(
+            host=settings.get("energyme.host",          "energyme.local"),
+            username=settings.get("energyme.username",  "admin"),
+            password=settings.get("energyme.password",  "energyme"),
+            timeout=int(settings.get("energyme.timeout", "5")),
+            poll_delay_ms=int(settings.get("energyme.poll_delay_ms", "200")),
+        )
+        interval = int(settings.get("energyme.collector_interval", "30"))
+        collector = BackgroundCollector(collector_client, ts_store, interval=interval)
+        collector.start()
+        config.registry.collector = collector
+
+    except Exception:
+        log.exception("Impossible d'initialiser le collecteur time series — tendances désactivées")
+        config.registry.ts_store = None

@@ -15,7 +15,7 @@
     .card { background: #1a1d2e; border: 1px solid #2d3148; border-radius: 12px; }
     .card-header { background: #252840; border-bottom: 1px solid #2d3148; font-weight: 600; }
     .metric-value { font-size: 1.3rem; font-weight: 700; color: #60a5fa; }
-    .metric-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
     .badge-online { background: #064e3b; color: #34d399; border: 1px solid #059669; }
     .badge-offline { background: #450a0a; color: #f87171; border: 1px solid #dc2626; }
     .table { color: #e2e8f0; }
@@ -30,14 +30,19 @@
     .stat-card:hover { transform: translateY(-2px); }
     .channel-col { min-width: 200px; }
     h5.section-title { color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
-    .param-desc { color: #64748b; font-size: 0.82rem; }
+    .param-desc { color: #94a3b8; font-size: 0.82rem; }
     .version-badge { font-size: 0.9rem; }
     .status-ok { color: #34d399; }
     .status-warn { color: #fbbf24; }
     .status-err { color: #f87171; }
     .info-row { padding: 0.4rem 0; border-bottom: 1px solid #2d3148; }
-    .info-key { color: #94a3b8; font-size: 0.85rem; }
+    .info-key { color: #cbd5e1; font-size: 0.85rem; }
     .info-val { font-weight: 600; }
+    .trend-hint { font-size: .65rem; line-height: 1.2; margin-top: 1px; opacity: .85; }
+    .trend-up   { color: #fb923c; }
+    .trend-down { color: #34d399; }
+    .trend-stable { color: #64748b; }
+    .trend-unknown { color: #475569; }
   </style>
 </head>
 <body>
@@ -58,6 +63,11 @@
         <li class="nav-item">
           <a class="nav-link {% if page == 'config' %}active fw-semibold{% endif %}" href="/config">
             <i class="bi bi-sliders me-1"></i>Configuration
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if page == 'graphs' %}active fw-semibold{% endif %}" href="/graphs">
+            <i class="bi bi-graph-up me-1"></i>Graphiques
           </a>
         </li>
         <li class="nav-item">

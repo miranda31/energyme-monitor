@@ -1,0 +1,253 @@
+{% extends "base.jinja2" %}
+{% block title %}Graphiques – EnergyMe Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h2 class="mb-0 fw-bold">Graphiques historiques</h2>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <!-- Fenêtre temporelle -->
+    <div class="input-group input-group-sm" style="width:auto">
+      <span class="input-group-text bg-transparent border-secondary" style="color:#94a3b8">
+        <i class="bi bi-clock-history"></i>
+      </span>
+      <select id="sel-window" class="form-select form-select-sm border-secondary"
+              style="background:#1a1d2e;color:#94a3b8;width:110px">
+        <option value="15">15 min</option>
+        <option value="60" selected>1 heure</option>
+        <option value="180">3 heures</option>
+        <option value="360">6 heures</option>
+        <option value="720">12 heures</option>
+        <option value="1440">24 heures</option>
+      </select>
+    </div>
+    <!-- Métrique -->
+    <div class="input-group input-group-sm" style="width:auto">
+      <span class="input-group-text bg-transparent border-secondary" style="color:#94a3b8">
+        <i class="bi bi-graph-up"></i>
+      </span>
+      <select id="sel-metric" class="form-select form-select-sm border-secondary"
+              style="background:#1a1d2e;color:#94a3b8;width:160px">
+        <option value="pw">Puissance active (W)</option>
+        <option value="ein">Énergie importée (Wh)</option>
+        <option value="eout">Énergie exportée (Wh)</option>
+      </select>
+    </div>
+    <!-- Rafraîchir -->
+    <button class="btn btn-sm btn-outline-info" id="btn-refresh" title="Rafraîchir">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-3">
+  <i class="bi bi-wifi-off fs-5"></i>
+  <div><strong>Dispositif injoignable</strong> — {{ error }}</div>
+</div>
+{% endif %}
+
+<!-- Sélecteur de canaux -->
+<div class="card mb-3 p-2">
+  <div class="d-flex align-items-center flex-wrap gap-2" id="channel-selector">
+    {% for ch in channels %}
+    {% set role = ch.role or 'load' %}
+    {% set color = ch.role_color or 'info' %}
+    {% set label = ch.label or ('Canal ' ~ ch.index) %}
+    <div class="form-check form-check-inline mb-0">
+      <input class="form-check-input ch-toggle" type="checkbox"
+             id="ch-{{ ch.index }}"
+             data-ch="{{ ch.index }}"
+             data-role="{{ role }}"
+             {% if ch.active and ch.metrics is not none %}checked{% endif %}>
+      <label class="form-check-label" for="ch-{{ ch.index }}"
+             style="font-size:.82rem;cursor:pointer">
+        <span class="badge bg-{{ color }} bg-opacity-25 text-{{ color }}"
+              style="border:1px solid;font-size:.7rem">
+          <i class="bi {{ ch.role_icon }} me-1"></i>{{ ch.index }}
+        </span>
+        {{ label }}
+      </label>
+    </div>
+    {% endfor %}
+    {% if not channels %}
+    <span class="text-muted small">Aucun canal disponible</span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Graphique -->
+<div class="card p-3" style="position:relative;min-height:400px">
+  <div id="chart-spinner" class="d-flex justify-content-center align-items-center"
+       style="position:absolute;inset:0;background:rgba(15,17,23,.6);z-index:10;border-radius:12px;display:none!important">
+    <div class="spinner-border text-info" role="status"></div>
+  </div>
+  <canvas id="chart-main" style="max-height:500px"></canvas>
+  <div id="chart-empty" class="text-center text-muted py-5 d-none">
+    <i class="bi bi-graph-up fs-1 d-block mb-2"></i>
+    Sélectionnez au moins un canal pour afficher le graphique.
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script>
+// ── Palette de couleurs par index de canal ────────────────────────────────────
+const PALETTE = [
+  '#60a5fa','#34d399','#fbbf24','#f87171','#a78bfa',
+  '#38bdf8','#4ade80','#fb923c','#f472b6','#818cf8',
+  '#2dd4bf','#facc15','#c084fc','#fb7185','#22d3ee','#86efac',
+];
+
+// ── État ──────────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'energyme_graphs';
+let chart = null;
+
+function loadPrefs() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+}
+function savePrefs(p) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+}
+
+// ── Restore persisted settings ────────────────────────────────────────────────
+(function () {
+  const p = loadPrefs();
+  if (p.window)  document.getElementById('sel-window').value = p.window;
+  if (p.metric)  document.getElementById('sel-metric').value = p.metric;
+  if (p.channels) {
+    document.querySelectorAll('.ch-toggle').forEach(cb => {
+      cb.checked = p.channels.includes(parseInt(cb.dataset.ch));
+    });
+  }
+})();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function selectedChannels() {
+  return [...document.querySelectorAll('.ch-toggle:checked')]
+    .map(cb => parseInt(cb.dataset.ch));
+}
+
+function metricLabel(metric) {
+  return { pw: 'W', ein: 'Wh import', eout: 'Wh export' }[metric] || metric;
+}
+
+function channelLabel(chIdx) {
+  const el = document.querySelector(`label[for="ch-${chIdx}"]`);
+  if (!el) return `Canal ${chIdx}`;
+  return el.textContent.trim().replace(/^\S+\s*/, ''); // strip badge text
+}
+
+// ── Fetch + render ────────────────────────────────────────────────────────────
+async function fetchAndRender() {
+  const chs    = selectedChannels();
+  const win    = document.getElementById('sel-window').value;
+  const metric = document.getElementById('sel-metric').value;
+
+  savePrefs({ window: win, metric, channels: chs });
+
+  const empty   = document.getElementById('chart-empty');
+  const spinner = document.getElementById('chart-spinner');
+
+  if (chs.length === 0) {
+    empty.classList.remove('d-none');
+    if (chart) { chart.destroy(); chart = null; }
+    return;
+  }
+  empty.classList.add('d-none');
+  spinner.style.removeProperty('display');
+
+  let datasets;
+  try {
+    const fetches = chs.map(ch =>
+      fetch(`/api/history/${ch}?minutes=${win}`).then(r => r.json())
+    );
+    const results = await Promise.all(fetches);
+
+    datasets = results.map((res, i) => {
+      const chIdx = chs[i];
+      const color = PALETTE[chIdx % PALETTE.length];
+      const points = (res.data || []).map(row => ({
+        x: row.ts * 1000,
+        y: row[metric] ?? null,
+      }));
+      return {
+        label:           channelLabel(chIdx),
+        data:            points,
+        borderColor:     color,
+        backgroundColor: color + '22',
+        borderWidth:     2,
+        pointRadius:     points.length > 200 ? 0 : 2,
+        tension:         0.3,
+        fill:            false,
+        spanGaps:        false,
+      };
+    });
+  } catch (e) {
+    spinner.style.display = 'none';
+    console.error('Erreur fetch historique', e);
+    return;
+  }
+
+  spinner.style.display = 'none';
+
+  const yLabel = metricLabel(metric);
+  const ctx = document.getElementById('chart-main').getContext('2d');
+
+  if (chart) {
+    chart.data.datasets = datasets;
+    chart.options.scales.y.title.text = yLabel;
+    chart.update();
+    return;
+  }
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: { color: '#94a3b8', boxWidth: 14, font: { size: 12 } },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(2) : '—'} ${yLabel}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { tooltipFormat: 'HH:mm:ss', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } },
+          grid:  { color: '#2d3148' },
+          ticks: { color: '#64748b', maxTicksLimit: 10 },
+        },
+        y: {
+          title: { display: true, text: yLabel, color: '#64748b', font: { size: 11 } },
+          grid:  { color: '#2d3148' },
+          ticks: { color: '#64748b' },
+        },
+      },
+    },
+  });
+}
+
+// ── Event listeners ───────────────────────────────────────────────────────────
+document.getElementById('sel-window').addEventListener('change', fetchAndRender);
+document.getElementById('sel-metric').addEventListener('change', () => {
+  if (chart) { chart.destroy(); chart = null; }
+  fetchAndRender();
+});
+document.getElementById('btn-refresh').addEventListener('click', fetchAndRender);
+document.querySelectorAll('.ch-toggle').forEach(cb =>
+  cb.addEventListener('change', fetchAndRender)
+);
+
+// ── Chargement initial ────────────────────────────────────────────────────────
+fetchAndRender();
+</script>
+{% endblock %}

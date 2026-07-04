@@ -63,6 +63,20 @@ services:
     restart: unless-stopped
     entrypoint: /usr/bin/tini -- /docker-entrypoint.sh
 
+  # ── Provisioner (crée l'input Syslog UDP au démarrage) ───────────────────
+  provisioner:
+    image: curlimages/curl:latest
+    container_name: energyme-provisioner
+    depends_on:
+      - graylog
+    environment:
+      - GRAYLOG_ROOT_PASSWORD=${GRAYLOG_ROOT_PASSWORD:-admin}
+    volumes:
+      - ./graylog_init/provision.sh:/provision.sh:ro
+    entrypoint: ["sh", "/provision.sh"]
+    networks: [graylog]
+    restart: on-failure
+
   # ── MCP Server (accès LLM aux logs via Graylog REST API) ─────────────────
   mcp-logs:
     build:

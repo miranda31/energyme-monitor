@@ -1,0 +1,46 @@
+name: Build, push et déploiement
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: registry.hamasei-domo.org
+  IMAGE_NAME: energyme-monitor
+
+jobs:
+  build-and-deploy:
+    runs-on: [self-hosted, energyme-monitor]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connexion à la registry privée
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$REGISTRY" \
+            -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build de l'image
+        run: |
+          docker build \
+            --tag "$REGISTRY/$IMAGE_NAME:${{ github.sha }}" \
+            --tag "$REGISTRY/$IMAGE_NAME:latest" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
+
+      - name: Push vers la registry
+        run: |
+          docker push "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+          docker push "$REGISTRY/$IMAGE_NAME:latest"
+
+      - name: Déploiement (pull + recreate si nécessaire)
+        run: |
+          docker compose -f /opt/stacks/energyme-monitor/compose.yml pull
+          docker compose -f /opt/stacks/energyme-monitor/compose.yml up -d
+
+      - name: Nettoyage des images inutilisées
+        if: always()
+        run: docker image prune -f
